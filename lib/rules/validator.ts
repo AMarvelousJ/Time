@@ -61,11 +61,14 @@ const validateRange = (
   const maxDays = config.maxDays || 5;
   const workdays = config.workdays || false;
 
-  // 检查时间是否晚于参考时间
+  // 检查时间是否晚于参考时间（minDays>0 时要求严格晚于，文案不含「或等于」）
   if (minDays >= 0 && current.isBefore(reference)) {
     return {
       valid: false,
-      message: `时间需晚于或等于${referenceLabel}`
+      message:
+        minDays > 0
+          ? `时间需晚于${referenceLabel}`
+          : `时间需晚于或等于${referenceLabel}`
     };
   }
 
@@ -109,6 +112,16 @@ const validateAfter = (
 
   const diff = current.diff(reference, 'day');
 
+  if (config.strictAfter) {
+    if (diff <= 0) {
+      return {
+        valid: false,
+        message: `时间必须晚于${referenceLabel}`
+      };
+    }
+    return { valid: true };
+  }
+
   if (diff < minDays) {
     return {
       valid: false,
@@ -131,6 +144,16 @@ const validateBefore = (
   const current = dayjs(currentTime);
   const reference = dayjs(referenceTime);
   const maxDays = config.maxDays;
+
+  if (config.strictBefore) {
+    if (!current.isBefore(reference, 'day')) {
+      return {
+        valid: false,
+        message: `时间必须早于${referenceLabel}`
+      };
+    }
+    return { valid: true };
+  }
 
   if (current.isAfter(reference)) {
     return {

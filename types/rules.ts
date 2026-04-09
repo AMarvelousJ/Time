@@ -26,8 +26,13 @@ export interface RuleConfig {
   workdays?: boolean;     // 是否仅计算工作日
   minDays?: number;
   maxDays?: number;
+  strictAfter?: boolean;  // after 规则是否必须严格晚于（不允许同一天）
+  strictBefore?: boolean; // before 规则是否必须严格早于（不允许同一天）
   referenceField?: string; // 参考字段
   syncFrom?: string;      // 同步来源字段 key（sync 类型使用）
+  offsetYears?: number;   // sync：在 syncFrom 日期基础上加整年（如预备期满日 = 支部大会 +1 年）
+  offsetMonths?: number;  // sync：在 syncFrom 基础上加整月（可与 offsetDays 联用，先月后天）
+  offsetDays?: number;    // sync：在加月之后再叠加天数（如「满季度次日」）
   required?: boolean;     // 是否必填项（默认为 true，false表示选填）
   periodType?: 'quarter' | 'half_year'; // 周期类型
   periodIndex?: number;   // 周期序号（从0开始）

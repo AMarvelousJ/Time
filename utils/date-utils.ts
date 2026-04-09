@@ -38,6 +38,29 @@ export const getWorkdaysBetween = (start: string, end: string): number => {
 };
 
 /**
+ * 从公示起始日算起，连续 N 个工作日（含起始日）的结束日。
+ * 与 store 中 range + workdays 的公示期展示逻辑一致。
+ */
+export const workdayPublicityEndInclusive = (
+  startDateStr: string,
+  workdayCount: number
+): string => {
+  let endDate = dayjs(startDateStr);
+  let addedWorkdays = 0;
+  if (endDate.day() !== 0 && endDate.day() !== 6) {
+    addedWorkdays = 1;
+  }
+  while (addedWorkdays < workdayCount) {
+    endDate = endDate.add(1, 'day');
+    const dayOfWeek = endDate.day();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      addedWorkdays++;
+    }
+  }
+  return formatDate(endDate);
+};
+
+/**
  * 计算推荐日期范围
  */
 export const calculateDateRange = (

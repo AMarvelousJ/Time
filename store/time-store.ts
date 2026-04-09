@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { TimeField, TimeFieldStatus } from '@/types';
 import { validateTimeRule } from '@/lib/rules';
 import { TIME_RULES, FIELD_LABELS } from '@/types/materials';
+import { workdayPublicityEndInclusive } from '@/utils/date-utils';
 
 const STORAGE_KEY = 'party_dev_time_fields';
 
@@ -104,7 +105,14 @@ export const useTimeStore = create<TimeState>((set, get) => ({
 
     // 如果有值和规则，进行校验
     let validationResult: { valid: boolean; message?: string; recommendation?: string } = { valid: true, message: undefined, recommendation: undefined };
-    if (value && referenceValue && rule) {
+    // 特例：网络党校学时证明是“月份”，预备党员公示时间只需在该月份及之后
+    // 不应被 range(workdays) 的“天数范围”校验限制在该月第 1 天起 5 个工作日内
+    const shouldSkipBaseRuleValidation =
+      key === 'probationPublicityTime' ||
+      key === 'm22_branchSecretarySignTime' ||
+      key === 'm22_contactPerson1Time';
+
+    if (value && referenceValue && rule && !shouldSkipBaseRuleValidation) {
       const referenceLabel = rule.dependencies.length > 0 ? (FIELD_LABELS[rule.dependencies[0]] || '参考时间') : '参考时间';
       validationResult = validateTimeRule(value, referenceValue, rule, referenceLabel);
     }
@@ -114,19 +122,8 @@ export const useTimeStore = create<TimeState>((set, get) => ({
     if (value && rule?.type === 'range' && rule.config.workdays) {
       const selectedDate = dayjs(value);
       const maxDays = rule.config.maxDays || 5;
-      let endDate = selectedDate;
-      let addedWorkdays = 0;
-      if (endDate.day() !== 0 && endDate.day() !== 6) {
-        addedWorkdays = 1;
-      }
-      while (addedWorkdays < maxDays) {
-        endDate = endDate.add(1, 'day');
-        const dayOfWeek = endDate.day();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-          addedWorkdays++;
-        }
-      }
-      recommendation = `公示期：${selectedDate.format('YYYY-MM-DD')} 至 ${endDate.format('YYYY-MM-DD')}（${rule.description}）`;
+      const endStr = workdayPublicityEndInclusive(value, maxDays);
+      recommendation = `公示期：${selectedDate.format('YYYY-MM-DD')} 至 ${endStr}（${rule.description}）`;
     }
 
     // Custom validation helper for complex fields
@@ -249,6 +246,72 @@ export const useTimeStore = create<TimeState>((set, get) => ({
             message = '时间必须在网络党校证明时间所在月份或之后';
           }
         }
+        return { valid, message, recommendation: baseResult.recommendation };
+      } else if (fKey === 'm17_branchPreReviewTime') {
+        // 党支部预审意见时间：必须在“预备党员公示期最后一天”之后
+        const probationPubStart = fields['probationPublicityTime']?.value;
+        let valid = baseResult.valid;
+        let message = baseResult.message;
+
+        if (probationPubStart) {
+          const pubEnd = getWorkdaysAfter(probationPubStart, 5);
+          if (!dayjs(fValue).isAfter(pubEnd, 'day')) {
+            valid = false;
+            message = '时间必须在预备党员公示结束（5个工作日）之后';
+          }
+        }
+
+        return { valid, message, recommendation: baseResult.recommendation };
+      } else if (fKey === 'm17_partyCommitteeTime') {
+        // 二级党委或党委组织部时间：必须在党支部预审意见时间之后
+        const branchPreReview = fields['m17_branchPreReviewTime']?.value;
+        let valid = baseResult.valid;
+        let message = baseResult.message;
+
+        if (branchPreReview) {
+          if (!dayjs(fValue).isAfter(dayjs(branchPreReview), 'day')) {
+            valid = false;
+            message = '时间必须在党支部预审意见时间之后';
+          }
+        }
+
+        return { valid, message, recommendation: baseResult.recommendation };
+      } else if (
+        fKey === 'm22_branchSecretarySignTime' ||
+        fKey === 'm22_contactPerson1Time'
+      ) {
+        // 须晚于预备党员转正公示（5 个工作日）的最后一天
+        const transferPubStart = fields['transferPublicityTime']?.value;
+        let valid = baseResult.valid;
+        let message = baseResult.message;
+
+        if (transferPubStart) {
+          const maxDays = TIME_RULES['transferPublicityTime']?.config?.maxDays ?? 5;
+          const pubEndStr = workdayPublicityEndInclusive(transferPubStart, maxDays);
+          if (!dayjs(fValue).isAfter(dayjs(pubEndStr), 'day')) {
+            valid = false;
+            message = '时间必须在预备党员转正公示结束（5个工作日）之后';
+          }
+        }
+
+        return { valid, message, recommendation: baseResult.recommendation };
+      } else if (fKey === 'transferPublicityTime') {
+        // 预备党员转正公示：公示期最后一天须早于「支部大会通过接受申请人为预备党员决议时间」起满一年之日
+        const branchMeeting = fields['branchMeetingTime']?.value;
+        let valid = baseResult.valid;
+        let message = baseResult.message;
+
+        if (valid && branchMeeting && fValue) {
+          const maxDays = TIME_RULES[fKey]?.config?.maxDays ?? 5;
+          const pubEnd = workdayPublicityEndInclusive(fValue, maxDays);
+          const probationEndDay = dayjs(branchMeeting).add(1, 'year');
+          if (!dayjs(pubEnd).isBefore(probationEndDay, 'day')) {
+            valid = false;
+            message =
+              '转正公示最后一天须早于预备期满日（须早于支部大会通过接受申请人为预备党员决议时间起满一年当日）';
+          }
+        }
+
         return { valid, message, recommendation: baseResult.recommendation };
       }
 
@@ -386,15 +449,29 @@ export const useTimeStore = create<TimeState>((set, get) => ({
       if (rule.type === 'sync' && rule.config.syncFrom) {
         const sourceField = fullFields[rule.config.syncFrom];
         const sourceValue = sourceField?.value || null;
-        
+        let computedValue: string | null = sourceValue;
+        if (sourceValue != null) {
+          if (typeof rule.config.offsetYears === 'number') {
+            computedValue = dayjs(sourceValue)
+              .add(rule.config.offsetYears, 'year')
+              .format('YYYY-MM-DD');
+          } else if (typeof rule.config.offsetMonths === 'number') {
+            let d = dayjs(sourceValue).add(rule.config.offsetMonths, 'month');
+            if (typeof rule.config.offsetDays === 'number') {
+              d = d.add(rule.config.offsetDays, 'day');
+            }
+            computedValue = d.format('YYYY-MM-DD');
+          }
+        }
+
         // 如果当前字段在 store 中不存在，或者存在且不是最新值
-        if (!fullFields[key] || fullFields[key].value !== sourceValue) {
+        if (!fullFields[key] || fullFields[key].value !== computedValue) {
           fullFields[key] = {
             ...fullFields[key],
             key,
             label: fullFields[key]?.label || key,
-            value: sourceValue,
-            status: sourceValue ? 'sync' : 'empty', // source有值则是sync，没值显示empty
+            value: computedValue,
+            status: computedValue ? 'sync' : 'empty', // source有值则是sync，没值显示empty
             rule
           };
         }

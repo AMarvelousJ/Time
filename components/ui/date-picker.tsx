@@ -16,6 +16,8 @@ export interface DatePickerProps {
   placeholder?: string;
   className?: string;
   granularity?: 'day' | 'month';
+  /** 与 value 同时传入时，按钮展示为「起始日 ~ 结束日」（用于工作日公示期等） */
+  rangeEndDate?: string;
 }
 
 export function DatePicker({
@@ -26,6 +28,7 @@ export function DatePicker({
   placeholder,
   className,
   granularity = 'day',
+  rangeEndDate,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -37,6 +40,13 @@ export function DatePicker({
   
   const currentPlaceholder = placeholder || (granularity === 'month' ? "请选择月份" : "请选择日期");
   const displayFormat = granularity === 'month' ? "YYYY-MM" : "YYYY-MM-DD";
+
+  const displayLabel =
+    value && rangeEndDate && granularity === 'day'
+      ? `${dayjs(value).format('YYYY-MM-DD')} ~ ${rangeEndDate}`
+      : value
+        ? dayjs(value).format(displayFormat)
+        : null;
 
   const handleSelect = (selectedDate: Date | undefined) => {
     if (selectedDate) {
@@ -71,6 +81,7 @@ export function DatePicker({
           type="button"
           className={cn(
             "w-full justify-between font-normal min-w-[140px]",
+            value && rangeEndDate && "min-w-[260px]",
             !value && "text-muted-foreground",
             hasError && "border-red-500 text-red-600",
             disabled && "cursor-not-allowed opacity-50",
@@ -81,7 +92,7 @@ export function DatePicker({
           <div className="flex items-center">
             <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
             <span className="truncate">
-              {value ? dayjs(value).format(displayFormat) : currentPlaceholder}
+              {displayLabel ?? currentPlaceholder}
             </span>
           </div>
           {value && !disabled && (

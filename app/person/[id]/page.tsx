@@ -24,6 +24,7 @@ import {
 import { AlertCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TimelineOverview } from "@/components/ui/timeline-overview";
+import { workdayPublicityEndInclusive } from "@/utils/date-utils";
 
 export default function PersonDetailPage() {
   const params = useParams();
@@ -142,13 +143,35 @@ export default function PersonDetailPage() {
   };
 
   // 获取同步来源的信息
-  const getSyncSourceInfo = (ruleConfig: any) => {
+  const getSyncSourceInfo = (ruleConfig: {
+    type?: string;
+    config?: {
+      syncFrom?: string;
+      offsetYears?: number;
+      offsetMonths?: number;
+      offsetDays?: number;
+    };
+  }) => {
     if (!ruleConfig || ruleConfig.type !== 'sync' || !ruleConfig.config?.syncFrom) return null;
     const sourceKey = ruleConfig.config.syncFrom;
     const sourceMaterial = MATERIALS.find(m => m.fields.includes(sourceKey));
     const materialName = sourceMaterial ? sourceMaterial.name : '未知材料';
     const fieldName = FIELD_LABELS[sourceKey] || sourceKey;
-    return `（同步自：${materialName} - ${fieldName}）`;
+    const y = ruleConfig.config.offsetYears;
+    const om = ruleConfig.config.offsetMonths;
+    const od = ruleConfig.config.offsetDays;
+    let offsetHint = '';
+    if (typeof y === 'number' && y !== 0) {
+      offsetHint = y === 1 ? '，加 1 年' : `，加 ${y} 年`;
+    } else if (typeof om === 'number') {
+      const q = om / 3;
+      if (typeof od === 'number') {
+        offsetHint = `，满第${q}个季度次日（+${om}月+${od}天）`;
+      } else {
+        offsetHint = `，+${om}月`;
+      }
+    }
+    return `（同步自：${materialName} - ${fieldName}${offsetHint}）`;
   };
 
   if (!loaded) {
@@ -347,6 +370,17 @@ export default function PersonDetailPage() {
                     const dependencyHint = getDependencyHint(fieldKey);
                     const hasError = status === "conflict";
 
+                    const isWorkdayPublicityField =
+                      rule?.type === "range" && Boolean(rule.config?.workdays);
+
+                    const workdayPublicityRangeEnd =
+                      isWorkdayPublicityField && field?.value
+                        ? workdayPublicityEndInclusive(
+                            field.value,
+                            rule.config.maxDays ?? 5
+                          )
+                        : undefined;
+
                     // 团推优材料中的 applicationTime 是只读的（从入党申请书同步）
                     // 现已统一为 'sync' 和 'empty_field' 类型
                     const isReadOnly = rule?.type === 'sync';
@@ -401,8 +435,13 @@ export default function PersonDetailPage() {
                                       onChange={(date) => handleDateChange(fieldKey, date)}
                                       disabled={!satisfied}
                                       hasError={hasError}
-                                      placeholder="请选择日期"
+                                      placeholder={
+                                        isWorkdayPublicityField
+                                          ? "请选择公示起始日"
+                                          : "请选择日期"
+                                      }
                                       granularity={rule?.config?.granularity}
+                                      rangeEndDate={workdayPublicityRangeEnd}
                                     />
                                     <AlertCircle className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-500" />
                                   </div>
@@ -417,8 +456,13 @@ export default function PersonDetailPage() {
                                 onChange={(date) => handleDateChange(fieldKey, date)}
                                 disabled={!satisfied}
                                 hasError={hasError}
-                                placeholder="请选择日期"
+                                placeholder={
+                                  isWorkdayPublicityField
+                                    ? "请选择公示起始日"
+                                    : "请选择日期"
+                                }
                                 granularity={rule?.config?.granularity}
+                                rangeEndDate={workdayPublicityRangeEnd}
                               />
                             )}
                             {/* 状态 Badge */}
