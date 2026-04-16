@@ -7,8 +7,10 @@ import { TimeField, TimeFieldStatus } from '@/types';
 import { validateTimeRule } from '@/lib/rules';
 import { TIME_RULES, FIELD_LABELS } from '@/types/materials';
 import { workdayPublicityEndInclusive } from '@/utils/date-utils';
-
-const STORAGE_KEY = 'party_dev_time_fields';
+import {
+  getTimelineSnapshot,
+  updateTimelineField,
+} from '@/lib/services/timeline-service';
 
 interface TimeHistory {
   timestamp: string;
@@ -24,13 +26,13 @@ interface TimeState {
   history: TimeHistory[];
 
   // Actions
-  setCurrentPersonId: (personId: string) => void;
-  setTimeField: (key: string, value: string | null) => void;
+  setCurrentPersonId: (personId: string) => Promise<void>;
+  setTimeField: (key: string, value: string | null) => Promise<void>;
   getField: (key: string) => TimeField | undefined;
   getAllFields: () => Record<string, TimeField>;
   getHistory: (fieldKey?: string) => TimeHistory[];
   restoreHistory: (index: number) => void;
-  loadFromStorage: () => void;
+  loadFromStorage: () => Promise<void>;
   clearAll: () => void;
 }
 
@@ -39,50 +41,52 @@ export const useTimeStore = create<TimeState>((set, get) => ({
   currentPersonId: null,
   history: [],
 
-  loadFromStorage: () => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-
-        // 数据迁移：检测是旧格式还是新格式
-        // 旧格式：{ [fieldKey]: TimeField }
-        // 新格式：{ [personId]: { [fieldKey]: TimeField } }
-        const isFirstFieldTimeField = (obj: any): boolean => {
-          const firstKey = Object.keys(obj)[0];
-          if (!firstKey) return false;
-          const firstValue = obj[firstKey];
-          return typeof firstValue === 'object' && 'value' in firstValue && 'status' in firstValue;
-        };
-
-        let timeFields: Record<string, Record<string, TimeField>>;
-        if (isFirstFieldTimeField(parsed)) {
-          // 旧格式，迁移到新格式：创建一个默认分组
-          // 由于无法确定属于哪个 person，我们保留数据但标记为 'default'
-          console.log('Migrating old format to new format');
-          timeFields = { default: parsed as Record<string, TimeField> };
-        } else {
-          // 新格式
-          timeFields = parsed as Record<string, Record<string, TimeField>>;
-        }
-
-        set({ timeFields });
-      }
-    } catch (e) {
-      console.error('Failed to load from storage', e);
-    }
+  loadFromStorage: async () => {
+    // localStorage 已下线；数据按 person 维度在 setCurrentPersonId 时加载
   },
 
   clearAll: () => {
     set({ timeFields: {}, currentPersonId: null, history: [] });
-    localStorage.removeItem(STORAGE_KEY);
   },
 
-  setCurrentPersonId: (personId: string) => {
+  setCurrentPersonId: async (personId: string) => {
     set({ currentPersonId: personId });
+    try {
+      const payload = await getTimelineSnapshot(personId);
+      const snapshot = payload.snapshot ?? {};
+      const fields: Record<string, TimeField> = {};
+
+      Object.entries(snapshot).forEach(([key, val]) => {
+        const rule = TIME_RULES[key];
+        const value = val ?? null;
+        fields[key] = {
+          key,
+          label: FIELD_LABELS[key] || key,
+          value,
+          rule,
+          status: value ? 'filled' : 'empty',
+        };
+      });
+
+      set((state) => ({
+        timeFields: {
+          ...state.timeFields,
+          [personId]: fields,
+        },
+        history: (payload.logs ?? []).map((log) => ({
+          timestamp: log.created_at,
+          personId,
+          fieldKey: log.field_key,
+          oldValue: log.old_value,
+          newValue: log.new_value,
+        })),
+      }));
+    } catch (e) {
+      console.error('Failed to load timeline snapshot', e);
+    }
   },
 
-  setTimeField: (key: string, value: string | null) => {
+  setTimeField: async (key: string, value: string | null) => {
     const personId = get().currentPersonId;
     if (!personId) {
       console.error('No current person ID set');
@@ -345,8 +349,6 @@ export const useTimeStore = create<TimeState>((set, get) => ({
         ...state.timeFields,
         [personId]: newPersonFields,
       };
-      // 保存到 localStorage
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newTimeFields));
 
       return {
         timeFields: newTimeFields,
@@ -408,12 +410,17 @@ export const useTimeStore = create<TimeState>((set, get) => ({
               ...state.timeFields,
               [personId]: updatedPersonFields,
             };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(newTimeFields));
             return { timeFields: newTimeFields };
           });
           }
         }
       });
+    }
+
+    try {
+      await updateTimelineField(personId, key, value);
+    } catch (e) {
+      console.error('Failed to persist timeline field', e);
     }
   },
 

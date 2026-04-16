@@ -3,81 +3,101 @@
  */
 import { create } from 'zustand';
 import { Person } from '@/types';
-
-const STORAGE_KEY = 'party_dev_persons';
+import {
+  createPerson,
+  listPersons,
+  removePerson,
+  updatePerson as updatePersonRemote,
+} from '@/lib/services/person-service';
 
 interface PersonState {
   persons: Person[];
   currentPersonId: string | null;
+  loading: boolean;
+  error: string | null;
 
   // Actions
-  addPerson: (name: string) => void;
+  addPerson: (name: string) => Promise<void>;
   selectPerson: (id: string) => void;
-  updatePerson: (id: string, data: Partial<Person>) => void;
-  deletePerson: (id: string) => void;
+  updatePerson: (id: string, data: Partial<Person>) => Promise<void>;
+  deletePerson: (id: string) => Promise<void>;
   getCurrentPerson: () => Person | null;
-  loadFromStorage: () => void;
+  loadFromStorage: () => Promise<void>;
 }
 
 export const usePersonStore = create<PersonState>((set, get) => ({
   persons: [],
   currentPersonId: null,
+  loading: false,
+  error: null,
 
-  loadFromStorage: () => {
+  loadFromStorage: async () => {
+    set({ loading: true, error: null });
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const persons = JSON.parse(stored);
-        set({ persons });
-      }
+      const persons = await listPersons();
+      set({ persons, loading: false });
     } catch (e) {
-      console.error('Failed to load from storage', e);
+      const message = e instanceof Error ? e.message : 'Failed to load persons';
+      console.error(message, e);
+      set({ loading: false, error: message });
     }
   },
 
-  addPerson: (name: string) => {
-    const newPerson: Person = {
-      id: crypto.randomUUID(),
-      name,
-      createdAt: new Date().toISOString().split('T')[0],
-      status: 'progress',
-      materials: []
-    };
-
-    set((state) => {
-      const newPersons = [...state.persons, newPerson];
-      // 保存到 localStorage
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newPersons));
-      return {
-        persons: newPersons,
-        currentPersonId: newPerson.id
-      };
-    });
+  addPerson: async (name: string) => {
+    set({ loading: true, error: null });
+    try {
+      const person = await createPerson(name);
+      set((state) => ({
+        persons: [person, ...state.persons],
+        currentPersonId: person.id,
+        loading: false,
+      }));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to create person';
+      console.error(message, e);
+      set({ loading: false, error: message });
+      throw e;
+    }
   },
 
   selectPerson: (id: string) => {
     set({ currentPersonId: id });
   },
 
-  updatePerson: (id: string, data: Partial<Person>) => {
-    set((state) => {
-      const newPersons = state.persons.map((p) =>
-        p.id === id ? { ...p, ...data } : p
-      );
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newPersons));
-      return { persons: newPersons };
-    });
+  updatePerson: async (id: string, data: Partial<Person>) => {
+    set({ loading: true, error: null });
+    try {
+      const updated = await updatePersonRemote(id, {
+        name: data.name,
+        status: data.status,
+      });
+      set((state) => ({
+        persons: state.persons.map((p) => (p.id === id ? updated : p)),
+        loading: false,
+      }));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to update person';
+      console.error(message, e);
+      set({ loading: false, error: message });
+      throw e;
+    }
   },
 
-  deletePerson: (id: string) => {
-    set((state) => {
-      const newPersons = state.persons.filter((p) => p.id !== id);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newPersons));
-      return {
-        persons: newPersons,
-        currentPersonId: state.currentPersonId === id ? null : state.currentPersonId
-      };
-    });
+  deletePerson: async (id: string) => {
+    set({ loading: true, error: null });
+    try {
+      await removePerson(id);
+      set((state) => ({
+        persons: state.persons.filter((p) => p.id !== id),
+        currentPersonId: state.currentPersonId === id ? null : state.currentPersonId,
+        loading: false,
+      }));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to delete person';
+      console.error(message, e);
+      set({ loading: false, error: message });
+      throw e;
+    }
   },
 
   getCurrentPerson: () => {

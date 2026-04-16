@@ -39,8 +39,8 @@ export default function PersonDetailPage() {
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
 
   useEffect(() => {
-    loadPersons();
-    loadTimeFields();
+    void loadPersons();
+    void loadTimeFields();
   }, []);
 
   useEffect(() => {
@@ -48,7 +48,7 @@ export default function PersonDetailPage() {
     setPersonFound(!!person);
     if (person) {
       selectPerson(personId);
-      setCurrentPersonId(personId);
+      void setCurrentPersonId(personId);
     }
     setLoaded(true);
   }, [personId, persons]);
@@ -139,7 +139,7 @@ export default function PersonDetailPage() {
 
   // 处理日期变更
   const handleDateChange = (fieldKey: string, date: string | null) => {
-    setTimeField(fieldKey, date);
+    void setTimeField(fieldKey, date);
   };
 
   // 获取同步来源的信息

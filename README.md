@@ -15,40 +15,43 @@
 
 ```
 party-dev-time-system/
-├── app/                    # Next.js App Router 页面目录
+├── app/                    # Next.js App Router 页面与 API
 │   ├── globals.css         # 全局样式
 │   ├── layout.tsx          # 根布局
 │   ├── page.tsx            # 首页
-│   ├── dashboard/          #  dashboard 页面
-│   └── person/             # 人员详情/填报页面
+│   ├── person/             # 人员详情/填报页面
+│   └── api/                # 后端接口（persons/timeline）
 ├── components/             # React 组件
 │   ├── ui/                 # shadcn/ui 基础组件
-│   ├── layout/             # 布局组件
-│   └── timeline/           # 时间轴组件
-├── lib/                    # 工具库
+├── lib/                    # 工具库与服务层
 │   ├── utils.ts            # 通用工具函数
-│   └── rules/              # 时间规则引擎
+│   ├── rules/              # 时间规则引擎
+│   ├── services/           # 前端 API 访问层
+│   ├── server/             # 服务端权限上下文
+│   └── supabase/           # Supabase 客户端封装
 ├── store/                  # Zustand 状态管理
 │   ├── person-store.ts     # 人员状态管理
 │   └── time-store.ts       # 时间字段状态管理
+├── supabase/               # Supabase SQL 迁移
+│   └── migrations/
+├── docs/                   # 项目文档
+│   ├── architecture/       # 架构文档
+│   └── design/             # 设计流程文档
+├── scripts/                # 脚本工具
 ├── types/                  # TypeScript 类型定义
-│   ├── person.ts           # 人员相关类型
-│   ├── rules.ts            # 规则相关类型
-│   └── materials.ts        # 27 个材料配置
-├── utils/                  # 工具函数
-│   └── date-utils.ts       # 日期处理工具
+│   └── ...                 # 业务类型与规则类型
+├── utils/                  # 日期与通用业务工具
 ├── public/                 # 静态资源
-├── components.json         # shadcn/ui 配置
-├── tailwind.config.ts      # Tailwind 配置
-└── tsconfig.json           # TypeScript 配置
+└── package.json
 ```
 
 ## 目录说明
 
 ### `app/`
-Next.js App Router 页面目录，采用文件系统路由。
+Next.js App Router 目录，采用文件系统路由。
 - `app/page.tsx` - 首页（人员列表）
 - `app/person/[id]/` - 人员详情/填报页面
+- `app/api/` - 人员与时间线 API
 
 ### `components/`
 React 组件目录：
@@ -57,9 +60,12 @@ React 组件目录：
 - `components/timeline/` - 时间轴概览组件
 
 ### `lib/`
-核心工具库：
+核心逻辑与服务层：
 - `lib/utils.ts` - 通用工具函数（cn 类名合并等）
 - `lib/rules/validator.ts` - 时间规则验证引擎
+- `lib/services/` - 前端请求 API 的服务层
+- `lib/server/` - 服务端 actor 权限判断
+- `lib/supabase/` - Supabase server client
 
 ### `store/`
 Zustand 状态管理：
@@ -72,11 +78,34 @@ TypeScript 类型定义：
 - `rules.ts` - RuleType, TimeRule 等
 - `materials.ts` - STAGES(5 阶段), MATERIALS(27 材料), TIME_RULES, FIELD_LABELS
 
-### `utils/`
-业务工具函数：
-- `date-utils.ts` - 基于 dayjs 的日期处理（工作日计算等）
+### `docs/`
+- `docs/architecture/project-overview.md` - 项目架构文档
+- `docs/design/supabase-backend-flow.md` - 后端接入设计流程
+
+### `scripts/`
+- `scripts/generate-materials.js` - 材料规则生成脚本
 
 ## 开发指南
+
+### Supabase 环境变量
+复制 `.env.example` 到 `.env.local`，并配置：
+
+```bash
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID=...
+```
+
+### 数据库初始化
+执行 `supabase/migrations/20260416_init_party_dev_schema.sql` 完成核心表与 RLS 初始化。
+
+### 示例数据初始化（可选，推荐开发联调）
+执行 `supabase/seeds/20260416_bootstrap_sample_data.sql` 快速生成三类角色与样例数据：
+- 系统管理员
+- 普通管理员（第一党支部）
+- 同学（两个支部各一个）
+
+执行后可通过修改 `NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID` 来切换当前操作角色。
 
 ### 安装依赖
 ```bash
@@ -113,7 +142,7 @@ npm start
 - [x] US-03: 填写单个时间字段
 - [x] US-04: 实时校验时间逻辑冲突
 - [x] US-05: 智能推荐下一个时间范围
-- [x] US-06: 保存填报进度（localStorage 持久化）
+- [x] US-06: 保存填报进度（云端持久化）
 
 ### 阶段二：高级功能（P1）✅
 - [x] US-07: 查看已填时间概览（时间轴）
@@ -143,9 +172,9 @@ npm start
 - 冲突字段标记与错误提示
 - 统计卡片（总数/正常/冲突）
 
-### 5. 本地存储
-- 人员数据 localStorage 持久化
-- 时间字段按人员 ID 隔离存储
+### 5. 数据持久化
+- 人员数据 Supabase 持久化
+- 时间字段按人员 ID 隔离存储（快照 + 日志）
 - 修改历史记录
 
 ## 规则引擎
@@ -180,12 +209,10 @@ npm start
 
 ## 数据存储
 
-- 使用浏览器 localStorage 进行本地持久化存储
-- 存储键：
-  - `party_dev_persons` - 人员列表数据
-  - `party_dev_time_fields` - 时间字段数据（按人员 ID 隔离）
-- 每个发展对象的数据完全隔离
-- 支持修改历史记录和恢复
+- 使用 Supabase 进行云端持久化存储
+- 按党支部进行数据隔离，按角色控制访问范围
+- 时间线采用快照表 + 变更日志表
+- 支持修改历史记录与审计追踪
 
 ## 待开发功能
 
@@ -195,9 +222,9 @@ npm start
 
 ## 隐私说明
 
-- 所有数据仅存储在用户浏览器本地
-- 不会上传到任何服务器
-- 无需账号登录即可使用
+- 数据存储在 Supabase 项目中
+- 通过角色与组织边界进行访问控制
+- M1 阶段通过临时 actor 机制访问，M2 将切换到 Supabase Auth
 
 ## License
 
