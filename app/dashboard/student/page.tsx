@@ -4,22 +4,30 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getDashboardSummary, StudentSummary } from "@/lib/services/dashboard-service";
+import { getCurrentActor } from "@/lib/services/actor-service";
+import { clearActorCookie } from "@/lib/auth/session";
+import { getSupabaseClient } from "@/lib/supabase/client";
 
 export default function StudentDashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<StudentSummary | null>(null);
+  const [actorName, setActorName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const run = async () => {
       try {
-        const payload = await getDashboardSummary();
-        if (payload.role !== "student") {
+        const [summaryPayload, actorPayload] = await Promise.all([
+          getDashboardSummary(),
+          getCurrentActor(),
+        ]);
+        if (summaryPayload.role !== "student") {
           router.replace("/");
           return;
         }
-        setSummary(payload.summary as StudentSummary);
+        setSummary(summaryPayload.summary as StudentSummary);
+        setActorName(actorPayload.displayName);
       } catch (e) {
         setError(e instanceof Error ? e.message : "加载失败");
       } finally {
@@ -29,11 +37,26 @@ export default function StudentDashboardPage() {
     void run();
   }, [router]);
 
+  const handleLogout = async () => {
+    const supabaseClient = getSupabaseClient();
+    await supabaseClient.auth.signOut();
+    clearActorCookie();
+    router.replace("/login");
+  };
+
   return (
     <main className="min-h-screen bg-zinc-50">
       <div className="max-w-4xl mx-auto px-6 py-10">
-        <h1 className="text-3xl font-bold text-zinc-900">我的档案首页</h1>
-        <p className="mt-2 text-zinc-600">当前角色：同学</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-zinc-900">我的档案首页</h1>
+            <p className="mt-2 text-zinc-600">当前角色：同学</p>
+            <p className="mt-1 text-zinc-700 font-medium">姓名：{actorName ?? "-"}</p>
+          </div>
+          <Button variant="outline" onClick={() => void handleLogout()}>
+            退出登录
+          </Button>
+        </div>
 
         {error && <p className="mt-6 text-red-600">{error}</p>}
         {loading && <StudentDashboardSkeleton />}

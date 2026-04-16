@@ -9,6 +9,7 @@ export interface RecentStudent {
 }
 
 export interface SystemSummary {
+  collegeName: string | null;
   totalBranches: number;
   totalStudents: number;
   progress: number;
@@ -23,13 +24,14 @@ export interface SystemSummary {
 }
 
 export interface BranchSummary {
-  branchId: string;
-  branchName: string;
+  branchId: string | null;
+  branchName: string | null;
   totalStudents: number;
   progress: number;
   completed: number;
   "needs-fix": number;
   recentStudents: RecentStudent[];
+  assignmentPending?: boolean;
 }
 
 export interface StudentSummary {

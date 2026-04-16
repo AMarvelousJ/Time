@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCurrentActor } from "@/lib/services/actor-service";
+import { getSystemAdminStatus } from "@/lib/services/auth-service";
 
 export default function Home() {
   const router = useRouter();
@@ -11,6 +12,12 @@ export default function Home() {
   useEffect(() => {
     const run = async () => {
       try {
+        const status = await getSystemAdminStatus();
+        if (!status.exists) {
+          router.replace("/setup/system-admin");
+          return;
+        }
+
         const actor = await getCurrentActor();
         if (actor.primaryRole === "system_admin") {
           router.replace("/dashboard/system");
@@ -23,6 +30,17 @@ export default function Home() {
         router.replace("/dashboard/student");
       } catch (e) {
         const message = e instanceof Error ? e.message : "角色信息读取失败";
+        if (
+          message.includes("Missing actorProfileId") ||
+          message.includes("Actor profile not found")
+        ) {
+          router.replace("/login");
+          return;
+        }
+        if (message.includes("Actor has no role")) {
+          router.replace("/pending");
+          return;
+        }
         setError(message);
       }
     };

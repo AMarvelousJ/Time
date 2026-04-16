@@ -11,6 +11,9 @@ export const getActorProfileIdFromRequest = (
   const fromQuery = request.nextUrl.searchParams.get("actorProfileId");
   if (fromQuery) return fromQuery;
 
+  const fromCookie = request.cookies.get("actor_profile_id")?.value;
+  if (fromCookie) return fromCookie;
+
   if (bootstrapActorId) return bootstrapActorId;
   return null;
 };

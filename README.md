@@ -96,6 +96,10 @@ SUPABASE_SERVICE_ROLE_KEY=...
 NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID=...
 ```
 
+说明：
+- 登录使用邮箱 + 密码（`/login` 页面）
+- `NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID` 仅用于本地临时调试兜底
+
 ### 数据库初始化
 执行 `supabase/migrations/20260416_init_party_dev_schema.sql` 完成核心表与 RLS 初始化。
 
@@ -106,6 +110,12 @@ NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID=...
 - 同学（两个支部各一个）
 
 执行后可通过修改 `NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID` 来切换当前操作角色。
+
+### 清理 mock/测试数据
+```bash
+npm run data:clear-mock
+```
+说明：会清空 `colleges/party_branches/profiles/role_assignments/students/timeline/registration_requests` 业务数据。
 
 ### 安装依赖
 ```bash
@@ -224,7 +234,7 @@ npm start
 
 - 数据存储在 Supabase 项目中
 - 通过角色与组织边界进行访问控制
-- M1 阶段通过临时 actor 机制访问，M2 将切换到 Supabase Auth
+- M1 阶段通过邮箱 + 密码登录 + actor 机制访问
 
 ## License
 

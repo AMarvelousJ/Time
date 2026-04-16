@@ -88,6 +88,22 @@ export async function GET(request: NextRequest) {
     }
 
     if (role === "branch_admin") {
+      if (!actor.branchAdminBranchId) {
+        return NextResponse.json({
+          role,
+          summary: {
+            branchId: null,
+            branchName: null,
+            totalStudents: 0,
+            progress: 0,
+            completed: 0,
+            "needs-fix": 0,
+            recentStudents: [],
+            assignmentPending: true,
+          },
+        });
+      }
+
       const { data: branchInfo, error: branchError } = await supabase
         .from("party_branches")
         .select("id,name")
@@ -122,6 +138,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    const { data: college, error: collegeError } = await supabase
+      .from("colleges")
+      .select("name")
+      .eq("id", actor.systemAdminCollegeId!)
+      .maybeSingle();
+    if (collegeError) throw collegeError;
+
     const { data: branchesData, error: branchesError } = await supabase
       .from("party_branches")
       .select("id,name,college_id")
@@ -134,6 +157,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         summary: {
+          collegeName: college?.name ?? null,
           totalBranches: 0,
           totalStudents: 0,
           progress: 0,
@@ -179,6 +203,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       role,
       summary: {
+        collegeName: college?.name ?? null,
         totalBranches: branches?.length ?? 0,
         totalStudents: students.length,
         ...statusCounts,
