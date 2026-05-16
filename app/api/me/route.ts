@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorContext, getPrimaryRole } from "@/lib/server/actor-auth";
+import { messageFromUnknown } from "@/lib/server/error-message";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

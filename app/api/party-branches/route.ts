@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { messageFromUnknown } from "@/lib/server/error-message";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export async function GET(_request: NextRequest) {
@@ -22,7 +23,7 @@ export async function GET(_request: NextRequest) {
       })),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

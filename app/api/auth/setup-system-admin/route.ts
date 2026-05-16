@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { messageFromUnknown } from "@/lib/server/error-message";
 import { hasSystemAdmin } from "@/lib/server/system-admin";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
   try {
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ actorProfileId: userId }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

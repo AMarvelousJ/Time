@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canAccessStudent, getActorContext } from "@/lib/server/actor-auth";
+import { messageFromUnknown } from "@/lib/server/error-message";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -52,7 +53,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -79,7 +80,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

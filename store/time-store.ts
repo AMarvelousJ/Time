@@ -368,13 +368,17 @@ export const useTimeStore = create<TimeState>((set, get) => ({
     // 如果这个字段是其他字段的依赖，需要重新校验那些字段
     if (value) {
       // 找出依赖这个字段的所有字段（含深层嵌套）
-      const getDeepDependencies = (sourceKey: string): string[] => {
+      const getDeepDependencies = (sourceKey: string, visited = new Set<string>()): string[] => {
+        if (visited.has(sourceKey)) return [];
+        visited.add(sourceKey);
+
         const directDeps = Object.entries(TIME_RULES)
-          .filter(([, r]) => r.dependencies.includes(sourceKey) || (r.type === 'sync' && r.config.syncFrom === sourceKey))
+          .filter(([k, r]) => !visited.has(k) && (r.dependencies.includes(sourceKey) || (r.type === 'sync' && r.config.syncFrom === sourceKey)))
           .map(([k]) => k);
-        let allDeps = [...directDeps];
+
+        const allDeps = [...directDeps];
         for (const dep of directDeps) {
-          allDeps = [...allDeps, ...getDeepDependencies(dep)];
+          allDeps.push(...getDeepDependencies(dep, visited));
         }
         return [...new Set(allDeps)];
       };

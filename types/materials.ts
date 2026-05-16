@@ -182,7 +182,7 @@ export const TIME_RULES: Record<string, TimeRule> = {
   talkTime: { type: 'fixed_offset', description: '收到申请书 1 个月内', dependencies: ['applicationTime'], config: { offset: 30, unit: 'days', direction: 'after' } },
   publicityTime: { type: 'range', description: '谈话后，公示 5 个工作日', dependencies: ['talkTime'], config: { minDays: 0, maxDays: 5, workdays: true } },
   leagueTime: { type: 'sequential', description: '按实际情况填写', dependencies: [], config: {} },
-  recommendTime: { type: 'after', description: '距离申请至少3个月', dependencies: ['applicationTime', 'partyOpinionTime'], config: { minDays: 90 } },
+  recommendTime: { type: 'after', description: '距离申请至少3个月', dependencies: ['applicationTime'], config: { minDays: 90 } },
   youthAuditTime: { type: 'after', description: '依次递进', dependencies: ['recommendTime'], config: { minDays: 0 } },
   partyOpinionTime: { type: 'after', description: '依次递进', dependencies: ['youthAuditTime'], config: { minDays: 0 } },
 

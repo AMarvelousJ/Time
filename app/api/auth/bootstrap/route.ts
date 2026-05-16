@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { messageFromUnknown } from "@/lib/server/error-message";
 import { ensureProfileExists } from "@/lib/server/profile-bootstrap";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
 
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
     await ensureProfileExists(actorProfileId);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
