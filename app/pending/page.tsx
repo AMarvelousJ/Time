@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { clearActorCookie } from "@/lib/auth/session";
-import { getSupabaseClient } from "@/lib/supabase/client";
 import {
   RegistrationRequest,
   listRegistrationRequests,
@@ -36,9 +35,7 @@ export default function PendingPage() {
     void run();
   }, [router]);
 
-  const handleLogout = async () => {
-    const supabase = getSupabaseClient();
-    await supabase.auth.signOut();
+  const handleLogout = () => {
     clearActorCookie();
     router.replace("/login");
   };

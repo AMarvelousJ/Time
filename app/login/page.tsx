@@ -6,9 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getSupabaseClient } from "@/lib/supabase/client";
 import { setActorCookie } from "@/lib/auth/session";
-import { getSystemAdminStatus } from "@/lib/services/auth-service";
+import { getSystemAdminStatus, loginUser } from "@/lib/services/auth-service";
 import { bootstrapAuthProfile } from "@/lib/services/registration-service";
 
 export default function LoginPage() {
@@ -45,21 +44,7 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const supabaseClient = getSupabaseClient();
-      const { data, error: signInError } = await supabaseClient.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-      if (signInError) {
-        setError(signInError.message);
-        return;
-      }
-
-      const userId = data.user?.id;
-      if (!userId) {
-        setError("登录成功但未获取到用户 ID");
-        return;
-      }
+      const { userId } = await loginUser(email.trim(), password);
 
       setActorCookie(userId);
       await bootstrapAuthProfile(userId);

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { getDashboardSummary, StudentSummary } from "@/lib/services/dashboard-service";
 import { getCurrentActor } from "@/lib/services/actor-service";
 import { clearActorCookie } from "@/lib/auth/session";
-import { getSupabaseClient } from "@/lib/supabase/client";
 
 export default function StudentDashboardPage() {
   const router = useRouter();
@@ -37,9 +36,7 @@ export default function StudentDashboardPage() {
     void run();
   }, [router]);
 
-  const handleLogout = async () => {
-    const supabaseClient = getSupabaseClient();
-    await supabaseClient.auth.signOut();
+  const handleLogout = () => {
     clearActorCookie();
     router.replace("/login");
   };

@@ -19,3 +19,23 @@ export const getSupabaseAdmin = () => {
     },
   });
 };
+
+export const getSupabaseRegular = () => {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl) {
+    throw new Error("Missing env SUPABASE_URL");
+  }
+
+  if (!supabaseAnonKey) {
+    throw new Error("Missing env SUPABASE_ANON_KEY");
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+};
