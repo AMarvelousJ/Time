@@ -52,6 +52,11 @@ export default function SystemDashboardPage() {
   const [adminSubmitting, setAdminSubmitting] = useState(false);
   const [adminFormError, setAdminFormError] = useState<string | null>(null);
 
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [approveTarget, setApproveTarget] = useState<RegistrationRequest | null>(null);
+  const [approvePartyBranchId, setApprovePartyBranchId] = useState("");
+  const [approveFormError, setApproveFormError] = useState<string | null>(null);
+
   const loadPageData = async () => {
     const [summaryPayload, requestsPayload, adminsPayload, actorPayload] = await Promise.all([
       getDashboardSummary(),
@@ -88,13 +93,51 @@ export default function SystemDashboardPage() {
     router.replace("/login");
   };
 
-  const handleApprove = async (requestId: string) => {
+  const openApproveDialog = (item: RegistrationRequest) => {
+    setApproveTarget(item);
+    setApprovePartyBranchId("");
+    setApproveFormError(null);
+    setApproveDialogOpen(true);
+  };
+
+  const handleApproveClick = (item: RegistrationRequest) => {
+    if (item.requested_role === "branch_admin") {
+      openApproveDialog(item);
+      return;
+    }
+    void handleApproveStudent(item.id);
+  };
+
+  const handleApproveStudent = async (requestId: string) => {
     setActionLoadingId(requestId);
     try {
       await approveRegistrationRequest(requestId);
       await loadPageData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "审批失败");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleApproveBranchAdmin = async () => {
+    if (!approveTarget) return;
+    if (!approvePartyBranchId) {
+      setApproveFormError("请选择要分配的党支部");
+      return;
+    }
+    setActionLoadingId(approveTarget.id);
+    setApproveFormError(null);
+    try {
+      await approveRegistrationRequest(approveTarget.id, {
+        partyBranchId: approvePartyBranchId,
+      });
+      setApproveDialogOpen(false);
+      setApproveTarget(null);
+      setApprovePartyBranchId("");
+      await loadPageData();
+    } catch (e) {
+      setApproveFormError(e instanceof Error ? e.message : "审批失败");
     } finally {
       setActionLoadingId(null);
     }
@@ -247,7 +290,11 @@ export default function SystemDashboardPage() {
                       {item.display_name} · 申请{item.requested_role === "student" ? "学生" : "普通管理员"}
                     </p>
                     <p className="text-xs text-zinc-500 mt-1">
-                      支部：{item.party_branch_name} · 电话：{item.phone ?? "-"}
+                      支部：
+                      {item.requested_role === "branch_admin"
+                        ? "审批时由系统管理员分配"
+                        : item.party_branch_name}{" "}
+                      · 电话：{item.phone ?? "-"}
                     </p>
                     {item.requested_role === "student" && (
                       <p className="text-xs text-zinc-500 mt-1">
@@ -258,7 +305,7 @@ export default function SystemDashboardPage() {
                       <Button
                         size="sm"
                         disabled={actionLoadingId === item.id}
-                        onClick={() => void handleApprove(item.id)}
+                        onClick={() => handleApproveClick(item)}
                       >
                         通过
                       </Button>
@@ -342,6 +389,82 @@ export default function SystemDashboardPage() {
               disabled={branchSubmitting || branchAdminOptions.length === 0}
             >
               {branchSubmitting ? "创建中..." : "创建党支部"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={approveDialogOpen}
+        onOpenChange={(open) => {
+          setApproveDialogOpen(open);
+          if (!open) {
+            setApproveTarget(null);
+            setApprovePartyBranchId("");
+            setApproveFormError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>分配党支部</DialogTitle>
+            <DialogDescription>
+              通过普通管理员申请前，请为
+              {approveTarget ? `「${approveTarget.display_name}」` : "申请人"}
+              指定所属党支部。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="approve-branch">所属党支部</Label>
+              <select
+                id="approve-branch"
+                className="w-full h-10 rounded-md border border-zinc-300 px-3 bg-white text-sm"
+                value={approvePartyBranchId}
+                onChange={(e) => setApprovePartyBranchId(e.target.value)}
+              >
+                <option value="">请选择党支部</option>
+                {(summary?.branches ?? []).map((branch) => (
+                  <option key={branch.branchId} value={branch.branchId}>
+                    {branch.branchName}
+                  </option>
+                ))}
+              </select>
+              {(summary?.branches.length ?? 0) === 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                  当前学院下还没有党支部，请先创建党支部后再审批。
+                  <div className="mt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setApproveDialogOpen(false);
+                        setBranchDialogOpen(true);
+                      }}
+                    >
+                      去新增党支部
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {approveFormError && <p className="text-sm text-red-600">{approveFormError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={() => void handleApproveBranchAdmin()}
+              disabled={
+                actionLoadingId === approveTarget?.id ||
+                !approvePartyBranchId ||
+                (summary?.branches.length ?? 0) === 0
+              }
+            >
+              {actionLoadingId === approveTarget?.id ? "审批中..." : "确认通过"}
             </Button>
           </DialogFooter>
         </DialogContent>

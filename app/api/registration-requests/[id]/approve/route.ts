@@ -56,6 +56,45 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Request missing applicant profile id" }, { status: 400 });
     }
 
+    const body = (await request.json().catch(() => ({}))) as { partyBranchId?: string };
+    let assignedPartyBranchId: string | null = requestRow.party_branch_id as string | null;
+    let assignedPartyBranchName = requestRow.party_branch_name as string | null;
+
+    if (requestRow.requested_role === "branch_admin") {
+      const partyBranchId = body.partyBranchId?.trim();
+      if (!partyBranchId) {
+        return NextResponse.json({ error: "审批普通管理员申请时必须选择党支部" }, { status: 400 });
+      }
+
+      const { data: branch, error: branchError } = await supabase
+        .from("party_branches")
+        .select("id,name,college_id")
+        .eq("id", partyBranchId)
+        .maybeSingle();
+      if (branchError) throw branchError;
+      if (!branch?.id) {
+        return NextResponse.json({ error: "所选党支部不存在" }, { status: 400 });
+      }
+      if (branch.college_id !== actor.systemAdminCollegeId) {
+        return NextResponse.json({ error: "无权分配其他学院的党支部" }, { status: 403 });
+      }
+
+      const { data: existingBranchAdmin, error: existingAdminError } = await supabase
+        .from("role_assignments")
+        .select("profile_id")
+        .eq("role", "branch_admin")
+        .eq("party_branch_id", partyBranchId)
+        .neq("profile_id", applicantProfileId)
+        .maybeSingle();
+      if (existingAdminError) throw existingAdminError;
+      if (existingBranchAdmin?.profile_id) {
+        return NextResponse.json({ error: "该党支部已有普通管理员，请选择其他支部" }, { status: 409 });
+      }
+
+      assignedPartyBranchId = branch.id;
+      assignedPartyBranchName = branch.name;
+    }
+
     if (requestRow.requested_role === "student") {
       const { error: roleError } = await supabase
         .from("role_assignments")
@@ -110,7 +149,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         .insert({
           profile_id: applicantProfileId,
           role: "branch_admin",
-          party_branch_id: requestRow.party_branch_id,
+          party_branch_id: assignedPartyBranchId,
         });
       if (roleError && !roleError.message.includes("duplicate")) throw roleError;
 
@@ -125,6 +164,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .from("registration_requests")
       .update({
         status: "approved",
+        party_branch_id: assignedPartyBranchId,
+        party_branch_name: assignedPartyBranchName,
         reviewed_at: new Date().toISOString(),
         reviewer_profile_id: actor.profileId,
         decision_source_profile_id: actor.profileId,

@@ -65,9 +65,13 @@ export const listRegistrationRequests = async (params?: {
   return apiFetch<{ requests: RegistrationRequest[] }>(`/api/registration-requests${suffix}`);
 };
 
-export const approveRegistrationRequest = async (id: string) => {
+export const approveRegistrationRequest = async (
+  id: string,
+  options?: { partyBranchId?: string }
+) => {
   return apiFetch<{ ok: boolean }>(`/api/registration-requests/${id}/approve`, {
     method: "POST",
+    body: JSON.stringify(options ?? {}),
   });
 };
 
