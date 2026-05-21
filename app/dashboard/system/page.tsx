@@ -26,7 +26,9 @@ import {
   BranchAdminOption,
   createBranchAdminAccount,
   createPartyBranch,
+  getPartyBranchDetail,
   listUnassignedBranchAdmins,
+  type PartyBranchDetail,
 } from "@/lib/services/system-admin-service";
 
 export default function SystemDashboardPage() {
@@ -56,6 +58,13 @@ export default function SystemDashboardPage() {
   const [approveTarget, setApproveTarget] = useState<RegistrationRequest | null>(null);
   const [approvePartyBranchId, setApprovePartyBranchId] = useState("");
   const [approveFormError, setApproveFormError] = useState<string | null>(null);
+
+  const [branchDetailOpen, setBranchDetailOpen] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+  const [selectedBranchName, setSelectedBranchName] = useState("");
+  const [branchDetail, setBranchDetail] = useState<PartyBranchDetail | null>(null);
+  const [branchDetailLoading, setBranchDetailLoading] = useState(false);
+  const [branchDetailError, setBranchDetailError] = useState<string | null>(null);
 
   const loadPageData = async () => {
     const [summaryPayload, requestsPayload, adminsPayload, actorPayload] = await Promise.all([
@@ -178,6 +187,32 @@ export default function SystemDashboardPage() {
     }
   };
 
+  const openBranchDetail = (branchId: string, branchName: string) => {
+    setSelectedBranchId(branchId);
+    setSelectedBranchName(branchName);
+    setBranchDetail(null);
+    setBranchDetailError(null);
+    setBranchDetailOpen(true);
+  };
+
+  useEffect(() => {
+    if (!branchDetailOpen || !selectedBranchId) return;
+
+    const run = async () => {
+      setBranchDetailLoading(true);
+      setBranchDetailError(null);
+      try {
+        const detail = await getPartyBranchDetail(selectedBranchId);
+        setBranchDetail(detail);
+      } catch (e) {
+        setBranchDetailError(e instanceof Error ? e.message : "加载支部详情失败");
+      } finally {
+        setBranchDetailLoading(false);
+      }
+    };
+    void run();
+  }, [branchDetailOpen, selectedBranchId]);
+
   const handleCreateBranchAdmin = async () => {
     if (!adminDisplayName.trim() || !adminEmail.trim() || !adminPassword.trim()) {
       setAdminFormError("请完整填写普通管理员姓名、邮箱、密码");
@@ -250,31 +285,20 @@ export default function SystemDashboardPage() {
               )}
 
               {summary.branches.map((branch) => (
-                <div key={branch.branchId} className="bg-white border border-zinc-200 rounded-xl p-5">
-                  <div className="flex items-center justify-between">
+                <button
+                  key={branch.branchId}
+                  type="button"
+                  onClick={() => openBranchDetail(branch.branchId, branch.branchName)}
+                  className="w-full text-left bg-white border border-zinc-200 rounded-xl p-5 transition hover:border-zinc-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+                >
+                  <div className="flex items-center justify-between gap-4">
                     <h2 className="font-semibold text-zinc-900">{branch.branchName}</h2>
-                    <span className="text-sm text-zinc-500">支部总人数：{branch.studentCount}</span>
+                    <span className="text-sm text-zinc-500 shrink-0">
+                      支部总人数：{branch.studentCount}
+                    </span>
                   </div>
-
-                  <div className="mt-4 space-y-3">
-                    {branch.students.length === 0 && (
-                      <p className="text-sm text-zinc-500">该支部暂无同学</p>
-                    )}
-                    {branch.students.map((student) => (
-                      <div key={student.id} className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2">
-                        <div>
-                          <p className="text-sm text-zinc-900">{student.name}</p>
-                          <p className="text-xs text-zinc-500">
-                            状态：{student.status} · 最近更新：{new Date(student.updatedAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <Button variant="outline" size="sm" onClick={() => router.push(`/person/${student.id}`)}>
-                          查看档案
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                  <p className="mt-3 text-sm text-zinc-500">点击查看普通管理员、学生填写进度与阶段</p>
+                </button>
               ))}
             </section>
 
@@ -389,6 +413,105 @@ export default function SystemDashboardPage() {
               disabled={branchSubmitting || branchAdminOptions.length === 0}
             >
               {branchSubmitting ? "创建中..." : "创建党支部"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={branchDetailOpen}
+        onOpenChange={(open) => {
+          setBranchDetailOpen(open);
+          if (!open) {
+            setSelectedBranchId(null);
+            setSelectedBranchName("");
+            setBranchDetail(null);
+            setBranchDetailError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col text-base">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold leading-snug">
+              {selectedBranchName || "支部详情"}
+            </DialogTitle>
+            <DialogDescription className="text-base text-zinc-600">
+              查看该支部的普通管理员与学生培养进度。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-6 pr-1">
+            {branchDetailLoading && (
+              <p className="text-base text-zinc-500">加载中...</p>
+            )}
+            {branchDetailError && (
+              <p className="text-base text-red-600">{branchDetailError}</p>
+            )}
+            {!branchDetailLoading && branchDetail && (
+              <>
+                <section className="rounded-lg border border-zinc-100 p-5">
+                  <h3 className="text-base font-semibold text-zinc-900">普通管理员</h3>
+                  {branchDetail.branchAdmin ? (
+                    <div className="mt-3 text-base text-zinc-700">
+                      <p className="font-medium">{branchDetail.branchAdmin.displayName}</p>
+                      <p className="text-sm text-zinc-500 mt-1">{branchDetail.branchAdmin.email}</p>
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-base text-zinc-500">暂未分配普通管理员</p>
+                  )}
+                </section>
+
+                <section>
+                  <h3 className="text-base font-semibold text-zinc-900">
+                    学生列表（{branchDetail.students.length}）
+                  </h3>
+                  {branchDetail.students.length === 0 ? (
+                    <p className="mt-3 text-base text-zinc-500">该支部暂无同学</p>
+                  ) : (
+                    <div className="mt-4 space-y-4">
+                      {branchDetail.students.map((student) => (
+                        <div
+                          key={student.id}
+                          className="rounded-lg border border-zinc-100 p-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-base font-semibold text-zinc-900">{student.name}</p>
+                            <p className="text-sm text-zinc-600 mt-2 leading-relaxed">
+                              档案状态：{student.statusLabel} · 当前阶段：{student.currentStageName}
+                            </p>
+                            <p className="text-sm text-zinc-600 mt-1">
+                              填写进度：{student.filledCount}/{student.totalFields}（{student.progressPercent}%）
+                            </p>
+                            <div className="mt-3 h-2.5 w-full max-w-sm rounded-full bg-zinc-100 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-zinc-900 transition-all"
+                                style={{ width: `${student.progressPercent}%` }}
+                              />
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            className="shrink-0 text-base h-10 px-4"
+                            onClick={() => router.push(`/person/${student.id}`)}
+                          >
+                            查看档案
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="text-base h-10 px-5"
+              onClick={() => setBranchDetailOpen(false)}
+            >
+              关闭
             </Button>
           </DialogFooter>
         </DialogContent>

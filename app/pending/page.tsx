@@ -42,7 +42,6 @@ export default function PendingPage() {
 
   const requestedRoleLock = requests[0]?.requested_role ?? null;
   const canApplyStudent = !requestedRoleLock || requestedRoleLock === "student";
-  const canApplyBranchAdmin = !requestedRoleLock || requestedRoleLock === "branch_admin";
 
   return (
     <main className="min-h-screen bg-zinc-50">
@@ -61,14 +60,6 @@ export default function PendingPage() {
             {canApplyStudent && (
               <Link href="/register/student" className={buttonVariants()}>
                 申请学生角色
-              </Link>
-            )}
-            {canApplyBranchAdmin && (
-              <Link
-                href="/register/branch-admin"
-                className={buttonVariants({ variant: "outline" })}
-              >
-                申请普通管理员角色
               </Link>
             )}
           </div>

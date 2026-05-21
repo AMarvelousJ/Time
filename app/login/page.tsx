@@ -106,19 +106,16 @@ export default function LoginPage() {
         <Button className="mt-6 w-full" onClick={() => void handleSubmit()} disabled={loading}>
           {loading ? "登录中..." : "登录"}
         </Button>
-        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="mt-4">
           <Link
             href="/register/student"
             className={buttonVariants({ variant: "outline", className: "w-full" })}
           >
             学生注册
           </Link>
-          <Link
-            href="/register/branch-admin"
-            className={buttonVariants({ variant: "outline", className: "w-full" })}
-          >
-            普通管理员注册
-          </Link>
+          <p className="mt-3 text-center text-xs text-zinc-500">
+            普通管理员账号由系统管理员创建，不提供自助注册。
+          </p>
         </div>
       </div>
     </main>

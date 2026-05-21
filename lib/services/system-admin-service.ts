@@ -31,3 +31,30 @@ export const createPartyBranch = async (input: {
   });
 };
 
+export interface PartyBranchStudentDetail {
+  id: string;
+  name: string;
+  status: string;
+  statusLabel: string;
+  filledCount: number;
+  totalFields: number;
+  progressPercent: number;
+  currentStageId: number;
+  currentStageName: string;
+  updatedAt: string;
+}
+
+export interface PartyBranchDetail {
+  branch: { id: string; name: string };
+  branchAdmin: {
+    profileId: string;
+    displayName: string;
+    email: string;
+  } | null;
+  students: PartyBranchStudentDetail[];
+}
+
+export const getPartyBranchDetail = async (branchId: string) => {
+  return apiFetch<PartyBranchDetail>(`/api/system/party-branches/${branchId}`);
+};
+

@@ -69,7 +69,13 @@ export async function POST(request: NextRequest) {
       note?: string;
     };
 
-    if (!body.requestedRole || !["student", "branch_admin"].includes(body.requestedRole)) {
+    if (!body.requestedRole || body.requestedRole !== "student") {
+      if (body.requestedRole === "branch_admin") {
+        return NextResponse.json(
+          { error: "普通管理员账号仅可由系统管理员创建，不支持自助申请" },
+          { status: 403 }
+        );
+      }
       return NextResponse.json({ error: "Invalid requestedRole" }, { status: 400 });
     }
 

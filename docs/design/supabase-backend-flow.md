@@ -37,7 +37,7 @@
 
 关键约束：
 
-- `branch_admin` 在 `role_assignments` 中必须带 `party_branch_id`
+- `branch_admin` 在 `role_assignments` 中 `college_id` 必须为空；`party_branch_id` 可在创建账号时为空，分配党支部书记或审批通过时再写入
 - `system_admin` 在 `role_assignments` 中必须带 `college_id`
 - `students.profile_id` 唯一（同学账户与同学档案一对一）
 - `timeline_snapshots.student_id` 唯一

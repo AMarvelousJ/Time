@@ -64,7 +64,7 @@ create table if not exists public.role_assignments (
   constraint role_scope_check check (
     (role = 'student' and college_id is null and party_branch_id is null)
     or
-    (role = 'branch_admin' and party_branch_id is not null and college_id is null)
+    (role = 'branch_admin' and college_id is null)
     or
     (role = 'system_admin' and college_id is not null and party_branch_id is null)
   )
