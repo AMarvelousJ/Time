@@ -2,12 +2,13 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const ensureProfileExists = async (profileId: string) => {
   const supabase = getSupabaseAdmin();
-  const { data: existing } = await supabase
+  const { data: existing, error: queryError } = await supabase
     .from("profiles")
     .select("id")
     .eq("id", profileId)
     .maybeSingle();
 
+  if (queryError) throw queryError;
   if (existing?.id) return;
 
   const { data: userData, error: userError } = await supabase.auth.admin.getUserById(profileId);

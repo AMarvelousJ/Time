@@ -114,12 +114,6 @@ export async function POST(request: NextRequest) {
       }
       applicantProfileId = actor.profileId;
 
-      const { data: existingUser, error: userError } = await supabase.auth.admin.getUserById(applicantProfileId);
-      if (userError) throw userError;
-      if (!existingUser.user?.id) {
-        return NextResponse.json({ error: "Current user is invalid" }, { status: 400 });
-      }
-
       const { error: profileUpdateError } = await supabase
         .from("profiles")
         .update({
