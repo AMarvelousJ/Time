@@ -6,6 +6,44 @@ import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type RequestedRole = "student" | "branch_admin";
+type RegistrationRequestRow = {
+  id: string;
+  applicant_user_id: string | null;
+  requested_role: RequestedRole;
+};
+
+const filterAlreadyAssignedPendingRequests = async <T extends RegistrationRequestRow>(
+  requests: T[],
+  status: string
+) => {
+  if (status !== "pending" || requests.length === 0) return requests;
+
+  const applicantIds = Array.from(
+    new Set(
+      requests
+        .map((item) => item.applicant_user_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+  if (applicantIds.length === 0) return requests;
+
+  const supabase = getSupabaseAdmin();
+  const { data: assignedRoles, error } = await supabase
+    .from("role_assignments")
+    .select("profile_id,role")
+    .in("profile_id", applicantIds)
+    .in("role", ["student", "branch_admin"]);
+  if (error) throw error;
+
+  const assignedRoleKeys = new Set(
+    (assignedRoles ?? []).map((item) => `${item.profile_id}:${item.role}`)
+  );
+
+  return requests.filter((item) => {
+    if (!item.applicant_user_id) return true;
+    return !assignedRoleKeys.has(`${item.applicant_user_id}:${item.requested_role}`);
+  });
+};
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +87,12 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json({ requests: data ?? [] });
+    const requests = await filterAlreadyAssignedPendingRequests(
+      ((data ?? []) as RegistrationRequestRow[]) as typeof data,
+      status
+    );
+
+    return NextResponse.json({ requests });
   } catch (error) {
     const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });

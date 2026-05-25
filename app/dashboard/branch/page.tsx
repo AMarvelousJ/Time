@@ -7,6 +7,8 @@ import { BranchSummary, getDashboardSummary } from "@/lib/services/dashboard-ser
 import { getCurrentActor } from "@/lib/services/actor-service";
 import { clearActorCookie, clearSupabaseBrowserSession } from "@/lib/auth/session";
 import {
+  ApprovedStudentResult,
+  RegistrationDecisionResult,
   RegistrationRequest,
   approveRegistrationRequest,
   listRegistrationRequests,
@@ -68,9 +70,51 @@ export default function BranchDashboardPage() {
     error instanceof Error &&
     (error.message.includes("already processed") || error.message.includes("该申请已处理"));
 
-  const afterRegistrationDecision = (requestId: string) => {
-    processedRequestIdsRef.current.add(requestId);
-    setPendingRequests((prev) => prev.filter((item) => item.id !== requestId));
+  const applyApprovedStudentToSummary = (
+    request: RegistrationRequest,
+    student?: ApprovedStudentResult | null
+  ) => {
+    if (request.requested_role !== "student" || !student) return;
+
+    setSummary((current) => {
+      if (!current) return current;
+      const alreadyExists = current.recentStudents.some((item) => item.id === student.id);
+      if (alreadyExists) return current;
+
+      const statusKey =
+        student.status === "completed"
+          ? "completed"
+          : student.status === "needs-fix"
+            ? "needs-fix"
+            : "progress";
+
+      return {
+        ...current,
+        totalStudents: current.totalStudents + 1,
+        [statusKey]: current[statusKey] + 1,
+        recentStudents: [
+          {
+            id: student.id,
+            name: student.name,
+            status: student.status,
+            updatedAt: student.updatedAt,
+          },
+          ...current.recentStudents,
+        ],
+      };
+    });
+  };
+
+  const afterRegistrationDecision = (
+    request: RegistrationRequest,
+    decision?: RegistrationDecisionResult
+  ) => {
+    const requestIds = decision?.affectedRequestIds?.length
+      ? decision.affectedRequestIds
+      : [request.id];
+    requestIds.forEach((requestId) => processedRequestIdsRef.current.add(requestId));
+    setPendingRequests((prev) => prev.filter((item) => !requestIds.includes(item.id)));
+    applyApprovedStudentToSummary(request, decision?.student);
     void Promise.allSettled([reloadPendingRequests(), loadPageData()]);
   };
 
@@ -93,15 +137,16 @@ export default function BranchDashboardPage() {
     router.replace("/login");
   };
 
-  const handleApprove = async (requestId: string) => {
+  const handleApprove = async (item: RegistrationRequest) => {
+    const requestId = item.id;
     setActionLoadingId(requestId);
     setError(null);
     try {
-      await approveRegistrationRequest(requestId);
-      afterRegistrationDecision(requestId);
+      const decision = await approveRegistrationRequest(requestId);
+      afterRegistrationDecision(item, decision);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
-        afterRegistrationDecision(requestId);
+        afterRegistrationDecision(item);
         return;
       }
       setError(e instanceof Error ? e.message : "审批失败");
@@ -111,14 +156,16 @@ export default function BranchDashboardPage() {
   };
 
   const handleReject = async (requestId: string) => {
+    const requestItem = pendingRequests.find((item) => item.id === requestId);
+    if (!requestItem) return;
     setActionLoadingId(requestId);
     setError(null);
     try {
-      await rejectRegistrationRequest(requestId);
-      afterRegistrationDecision(requestId);
+      const decision = await rejectRegistrationRequest(requestId);
+      afterRegistrationDecision(requestItem, decision);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
-        afterRegistrationDecision(requestId);
+        afterRegistrationDecision(requestItem);
         return;
       }
       setError(e instanceof Error ? e.message : "驳回失败");
@@ -203,7 +250,7 @@ export default function BranchDashboardPage() {
                       <Button
                         size="sm"
                         disabled={actionLoadingId === item.id}
-                        onClick={() => void handleApprove(item.id)}
+                        onClick={() => void handleApprove(item)}
                       >
                         通过
                       </Button>

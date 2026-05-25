@@ -59,6 +59,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const body = (await request.json().catch(() => ({}))) as { partyBranchId?: string };
     let assignedPartyBranchId: string | null = requestRow.party_branch_id as string | null;
     let assignedPartyBranchName = requestRow.party_branch_name as string | null;
+    let approvedStudent: {
+      id: string;
+      name: string;
+      status: string;
+      updatedAt: string;
+      partyBranchId: string;
+    } | null = null;
 
     if (requestRow.requested_role === "branch_admin") {
       const partyBranchId = body.partyBranchId?.trim();
@@ -106,7 +113,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
       const { data: existingStudent } = await supabase
         .from("students")
-        .select("id")
+        .select("id,full_name,status,updated_at,party_branch_id")
         .eq("profile_id", applicantProfileId)
         .maybeSingle();
 
@@ -121,10 +128,25 @@ export async function POST(request: NextRequest, context: RouteContext) {
             created_by: actor.profileId,
             status: "progress",
           })
-          .select("id")
+          .select("id,full_name,status,updated_at,party_branch_id")
           .single();
         if (studentError) throw studentError;
         studentId = createdStudent.id;
+        approvedStudent = {
+          id: createdStudent.id,
+          name: createdStudent.full_name,
+          status: createdStudent.status,
+          updatedAt: createdStudent.updated_at,
+          partyBranchId: createdStudent.party_branch_id,
+        };
+      } else if (existingStudent) {
+        approvedStudent = {
+          id: existingStudent.id,
+          name: existingStudent.full_name,
+          status: existingStudent.status,
+          updatedAt: existingStudent.updated_at,
+          partyBranchId: existingStudent.party_branch_id,
+        };
       }
 
       const { data: snapshot } = await supabase
@@ -171,15 +193,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
         decision_source_profile_id: actor.profileId,
         decision_source_role: role,
       })
-      .eq("id", id)
+      .eq("applicant_user_id", applicantProfileId)
+      .eq("requested_role", requestRow.requested_role)
+      .eq("status", "pending")
       .select("id")
-      .maybeSingle();
+      .returns<Array<{ id: string }>>();
     if (updateError) throw updateError;
-    if (!updatedRequest?.id) {
+    if (!updatedRequest?.length) {
       return NextResponse.json({ error: "Failed to update request status" }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      affectedRequestIds: updatedRequest.map((item) => item.id),
+      student: approvedStudent,
+    });
   } catch (error) {
     const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });

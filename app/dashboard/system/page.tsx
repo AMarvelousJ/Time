@@ -18,7 +18,9 @@ import { getCurrentActor } from "@/lib/services/actor-service";
 import { clearActorCookie, clearSupabaseBrowserSession } from "@/lib/auth/session";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
+  ApprovedStudentResult,
   RegistrationRequest,
+  RegistrationDecisionResult,
   approveRegistrationRequest,
   listRegistrationRequests,
   rejectRegistrationRequest,
@@ -115,9 +117,60 @@ export default function SystemDashboardPage() {
     error instanceof Error &&
     (error.message.includes("already processed") || error.message.includes("该申请已处理"));
 
-  const afterRegistrationDecision = (requestId: string) => {
-    processedRequestIdsRef.current.add(requestId);
-    setPendingRequests((prev) => prev.filter((item) => item.id !== requestId));
+  const applyApprovedStudentToSummary = (
+    request: RegistrationRequest,
+    student?: ApprovedStudentResult | null
+  ) => {
+    if (request.requested_role !== "student" || !student) return;
+
+    setSummary((current) => {
+      if (!current) return current;
+      const alreadyExists = current.branches.some((branch) =>
+        branch.students.some((item) => item.id === student.id)
+      );
+      if (alreadyExists) return current;
+
+      const statusKey =
+        student.status === "completed"
+          ? "completed"
+          : student.status === "needs-fix"
+            ? "needs-fix"
+            : "progress";
+
+      return {
+        ...current,
+        totalStudents: current.totalStudents + 1,
+        [statusKey]: current[statusKey] + 1,
+        branches: current.branches.map((branch) => {
+          if (branch.branchId !== student.partyBranchId) return branch;
+          return {
+            ...branch,
+            studentCount: branch.studentCount + 1,
+            students: [
+              {
+                id: student.id,
+                name: student.name,
+                status: student.status,
+                updatedAt: student.updatedAt,
+              },
+              ...branch.students,
+            ],
+          };
+        }),
+      };
+    });
+  };
+
+  const afterRegistrationDecision = (
+    request: RegistrationRequest,
+    decision?: RegistrationDecisionResult
+  ) => {
+    const requestIds = decision?.affectedRequestIds?.length
+      ? decision.affectedRequestIds
+      : [request.id];
+    requestIds.forEach((requestId) => processedRequestIdsRef.current.add(requestId));
+    setPendingRequests((prev) => prev.filter((item) => !requestIds.includes(item.id)));
+    applyApprovedStudentToSummary(request, decision?.student);
     void Promise.allSettled([reloadPendingRequests(), loadPageData()]);
   };
 
@@ -176,18 +229,19 @@ export default function SystemDashboardPage() {
       openApproveDialog(item);
       return;
     }
-    void handleApproveStudent(item.id);
+    void handleApproveStudent(item);
   };
 
-  const handleApproveStudent = async (requestId: string) => {
+  const handleApproveStudent = async (item: RegistrationRequest) => {
+    const requestId = item.id;
     setActionLoadingId(requestId);
     setError(null);
     try {
-      await approveRegistrationRequest(requestId);
-      afterRegistrationDecision(requestId);
+      const decision = await approveRegistrationRequest(requestId);
+      afterRegistrationDecision(item, decision);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
-        afterRegistrationDecision(requestId);
+        afterRegistrationDecision(item);
         return;
       }
       setError(e instanceof Error ? e.message : "审批失败");
@@ -206,19 +260,19 @@ export default function SystemDashboardPage() {
     setActionLoadingId(requestId);
     setApproveFormError(null);
     try {
-      await approveRegistrationRequest(requestId, {
+      const decision = await approveRegistrationRequest(requestId, {
         partyBranchId: approvePartyBranchId,
       });
       setApproveDialogOpen(false);
       setApproveTarget(null);
       setApprovePartyBranchId("");
-      afterRegistrationDecision(requestId);
+      afterRegistrationDecision(approveTarget, decision);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
         setApproveDialogOpen(false);
         setApproveTarget(null);
         setApprovePartyBranchId("");
-        afterRegistrationDecision(requestId);
+        afterRegistrationDecision(approveTarget);
         return;
       }
       setApproveFormError(e instanceof Error ? e.message : "审批失败");
@@ -228,14 +282,16 @@ export default function SystemDashboardPage() {
   };
 
   const handleReject = async (requestId: string) => {
+    const requestItem = pendingRequests.find((item) => item.id === requestId);
+    if (!requestItem) return;
     setActionLoadingId(requestId);
     setError(null);
     try {
-      await rejectRegistrationRequest(requestId);
-      afterRegistrationDecision(requestId);
+      const decision = await rejectRegistrationRequest(requestId);
+      afterRegistrationDecision(requestItem, decision);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
-        afterRegistrationDecision(requestId);
+        afterRegistrationDecision(requestItem);
         return;
       }
       setError(e instanceof Error ? e.message : "驳回失败");

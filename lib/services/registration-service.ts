@@ -30,6 +30,20 @@ export interface PartyBranchOption {
   collegeName: string;
 }
 
+export interface ApprovedStudentResult {
+  id: string;
+  name: string;
+  status: string;
+  updatedAt: string;
+  partyBranchId: string;
+}
+
+export interface RegistrationDecisionResult {
+  ok: boolean;
+  affectedRequestIds?: string[];
+  student?: ApprovedStudentResult | null;
+}
+
 export const listPartyBranches = async (): Promise<PartyBranchOption[]> => {
   const payload = await apiFetch<{ branches: PartyBranchOption[] }>("/api/party-branches");
   return payload.branches;
@@ -69,14 +83,14 @@ export const approveRegistrationRequest = async (
   id: string,
   options?: { partyBranchId?: string }
 ) => {
-  return apiFetch<{ ok: boolean }>(`/api/registration-requests/${id}/approve`, {
+  return apiFetch<RegistrationDecisionResult>(`/api/registration-requests/${id}/approve`, {
     method: "POST",
     body: JSON.stringify(options ?? {}),
   });
 };
 
 export const rejectRegistrationRequest = async (id: string, note?: string) => {
-  return apiFetch<{ ok: boolean }>(`/api/registration-requests/${id}/reject`, {
+  return apiFetch<RegistrationDecisionResult>(`/api/registration-requests/${id}/reject`, {
     method: "POST",
     body: JSON.stringify({ note }),
   });

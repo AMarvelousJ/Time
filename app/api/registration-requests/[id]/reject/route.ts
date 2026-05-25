@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "No permission for this branch request" }, { status: 403 });
     }
 
-    const { error: updateError } = await supabase
+    const { data: updatedRequests, error: updateError } = await supabase
       .from("registration_requests")
       .update({
         status: "rejected",
@@ -63,10 +63,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
         decision_source_role: role,
         review_note: body.note?.trim() || requestRow.review_note,
       })
-      .eq("id", id);
+      .eq("applicant_user_id", requestRow.applicant_user_id)
+      .eq("requested_role", requestRow.requested_role)
+      .eq("status", "pending")
+      .select("id")
+      .returns<Array<{ id: string }>>();
     if (updateError) throw updateError;
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      affectedRequestIds: updatedRequests.map((item) => item.id),
+    });
   } catch (error) {
     const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
