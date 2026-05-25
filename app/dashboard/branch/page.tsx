@@ -22,20 +22,49 @@ export default function BranchDashboardPage() {
   const [actorName, setActorName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const reloadPendingRequests = async () => {
+    const requestsPayload = await listRegistrationRequests({
+      status: "pending",
+      requestedRole: "student",
+    });
+    setPendingRequests(requestsPayload.requests);
+  };
+
   const loadPageData = async () => {
-    const [summaryPayload, requestsPayload, actorPayload] = await Promise.all([
+    const [summaryResult, requestsResult, actorResult] = await Promise.allSettled([
       getDashboardSummary(),
       listRegistrationRequests({ status: "pending", requestedRole: "student" }),
       getCurrentActor(),
     ]);
 
+    if (requestsResult.status === "fulfilled") {
+      setPendingRequests(requestsResult.value.requests);
+    }
+
+    if (actorResult.status === "fulfilled") {
+      setActorName(actorResult.value.displayName);
+    }
+
+    if (summaryResult.status !== "fulfilled") {
+      throw summaryResult.reason;
+    }
+
+    const summaryPayload = summaryResult.value;
     if (summaryPayload.role !== "branch_admin") {
       router.replace("/");
       return;
     }
     setSummary(summaryPayload.summary as BranchSummary);
-    setPendingRequests(requestsPayload.requests);
-    setActorName(actorPayload.displayName);
+  };
+
+  const isAlreadyProcessedError = (error: unknown) =>
+    error instanceof Error &&
+    (error.message.includes("already processed") || error.message.includes("该申请已处理"));
+
+  const afterRegistrationDecision = async (requestId: string) => {
+    setPendingRequests((prev) => prev.filter((item) => item.id !== requestId));
+    await reloadPendingRequests();
+    await loadPageData();
   };
 
   useEffect(() => {
@@ -58,10 +87,15 @@ export default function BranchDashboardPage() {
 
   const handleApprove = async (requestId: string) => {
     setActionLoadingId(requestId);
+    setError(null);
     try {
       await approveRegistrationRequest(requestId);
-      await loadPageData();
+      await afterRegistrationDecision(requestId);
     } catch (e) {
+      if (isAlreadyProcessedError(e)) {
+        await afterRegistrationDecision(requestId);
+        return;
+      }
       setError(e instanceof Error ? e.message : "审批失败");
     } finally {
       setActionLoadingId(null);
@@ -70,10 +104,15 @@ export default function BranchDashboardPage() {
 
   const handleReject = async (requestId: string) => {
     setActionLoadingId(requestId);
+    setError(null);
     try {
       await rejectRegistrationRequest(requestId);
-      await loadPageData();
+      await afterRegistrationDecision(requestId);
     } catch (e) {
+      if (isAlreadyProcessedError(e)) {
+        await afterRegistrationDecision(requestId);
+        return;
+      }
       setError(e instanceof Error ? e.message : "驳回失败");
     } finally {
       setActionLoadingId(null);

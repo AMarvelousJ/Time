@@ -66,22 +66,51 @@ export default function SystemDashboardPage() {
   const [branchDetailLoading, setBranchDetailLoading] = useState(false);
   const [branchDetailError, setBranchDetailError] = useState<string | null>(null);
 
+  const reloadPendingRequests = async () => {
+    const requestsPayload = await listRegistrationRequests({ status: "pending" });
+    setPendingRequests(requestsPayload.requests);
+  };
+
   const loadPageData = async () => {
-    const [summaryPayload, requestsPayload, adminsPayload, actorPayload] = await Promise.all([
+    const [summaryResult, requestsResult, adminsResult, actorResult] = await Promise.allSettled([
       getDashboardSummary(),
       listRegistrationRequests({ status: "pending" }),
       listUnassignedBranchAdmins(),
       getCurrentActor(),
     ]);
 
+    if (requestsResult.status === "fulfilled") {
+      setPendingRequests(requestsResult.value.requests);
+    }
+
+    if (actorResult.status === "fulfilled") {
+      setActorName(actorResult.value.displayName);
+    }
+
+    if (adminsResult.status === "fulfilled") {
+      setBranchAdminOptions(adminsResult.value.options);
+    }
+
+    if (summaryResult.status !== "fulfilled") {
+      throw summaryResult.reason;
+    }
+
+    const summaryPayload = summaryResult.value;
     if (summaryPayload.role !== "system_admin") {
       router.replace("/");
       return;
     }
     setSummary(summaryPayload.summary as SystemSummary);
-    setPendingRequests(requestsPayload.requests);
-    setBranchAdminOptions(adminsPayload.options);
-    setActorName(actorPayload.displayName);
+  };
+
+  const isAlreadyProcessedError = (error: unknown) =>
+    error instanceof Error &&
+    (error.message.includes("already processed") || error.message.includes("该申请已处理"));
+
+  const afterRegistrationDecision = async (requestId: string) => {
+    setPendingRequests((prev) => prev.filter((item) => item.id !== requestId));
+    await reloadPendingRequests();
+    await loadPageData();
   };
 
   useEffect(() => {
@@ -119,10 +148,15 @@ export default function SystemDashboardPage() {
 
   const handleApproveStudent = async (requestId: string) => {
     setActionLoadingId(requestId);
+    setError(null);
     try {
       await approveRegistrationRequest(requestId);
-      await loadPageData();
+      await afterRegistrationDecision(requestId);
     } catch (e) {
+      if (isAlreadyProcessedError(e)) {
+        await afterRegistrationDecision(requestId);
+        return;
+      }
       setError(e instanceof Error ? e.message : "审批失败");
     } finally {
       setActionLoadingId(null);
@@ -135,17 +169,25 @@ export default function SystemDashboardPage() {
       setApproveFormError("请选择要分配的党支部");
       return;
     }
-    setActionLoadingId(approveTarget.id);
+    const requestId = approveTarget.id;
+    setActionLoadingId(requestId);
     setApproveFormError(null);
     try {
-      await approveRegistrationRequest(approveTarget.id, {
+      await approveRegistrationRequest(requestId, {
         partyBranchId: approvePartyBranchId,
       });
       setApproveDialogOpen(false);
       setApproveTarget(null);
       setApprovePartyBranchId("");
-      await loadPageData();
+      await afterRegistrationDecision(requestId);
     } catch (e) {
+      if (isAlreadyProcessedError(e)) {
+        setApproveDialogOpen(false);
+        setApproveTarget(null);
+        setApprovePartyBranchId("");
+        await afterRegistrationDecision(requestId);
+        return;
+      }
       setApproveFormError(e instanceof Error ? e.message : "审批失败");
     } finally {
       setActionLoadingId(null);
@@ -154,10 +196,15 @@ export default function SystemDashboardPage() {
 
   const handleReject = async (requestId: string) => {
     setActionLoadingId(requestId);
+    setError(null);
     try {
       await rejectRegistrationRequest(requestId);
-      await loadPageData();
+      await afterRegistrationDecision(requestId);
     } catch (e) {
+      if (isAlreadyProcessedError(e)) {
+        await afterRegistrationDecision(requestId);
+        return;
+      }
       setError(e instanceof Error ? e.message : "驳回失败");
     } finally {
       setActionLoadingId(null);

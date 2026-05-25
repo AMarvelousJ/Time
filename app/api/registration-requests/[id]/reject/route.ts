@@ -38,7 +38,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (requestError) throw requestError;
 
     if (requestRow.status !== "pending") {
-      return NextResponse.json({ error: "Request is already processed" }, { status: 409 });
+      return NextResponse.json({ error: "该申请已处理，无需重复操作" }, { status: 409 });
     }
 
     if (requestRow.requested_role === "branch_admin" && role !== "system_admin") {

@@ -7,6 +7,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 type RequestedRole = "student" | "branch_admin";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const actorProfileId = getActorProfileIdFromRequest(request);

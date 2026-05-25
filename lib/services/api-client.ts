@@ -14,8 +14,10 @@ export const apiFetch = async <T>(
   input: string,
   init?: RequestInit
 ): Promise<T> => {
+  const method = (init?.method ?? "GET").toUpperCase();
   const response = await fetch(input, {
     ...init,
+    cache: method === "GET" ? "no-store" : init?.cache,
     headers: {
       ...getHeaders(),
       ...(init?.headers ?? {}),
