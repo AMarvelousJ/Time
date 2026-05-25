@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getActorContext, getPrimaryRole } from "@/lib/server/actor-auth";
 import { messageFromUnknown } from "@/lib/server/error-message";
 import { ensureProfileExists } from "@/lib/server/profile-bootstrap";
+import { withNoStoreHeaders } from "@/lib/server/no-store-response";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -9,6 +10,7 @@ type RequestedRole = "student" | "branch_admin";
 type RegistrationRequestRow = {
   id: string;
   applicant_user_id: string | null;
+  email: string;
   requested_role: RequestedRole;
 };
 
@@ -25,28 +27,77 @@ const filterAlreadyAssignedPendingRequests = async <T extends RegistrationReques
         .filter((id): id is string => Boolean(id))
     )
   );
-  if (applicantIds.length === 0) return requests;
+  const requestEmails = Array.from(
+    new Set(
+      requests
+        .map((item) => item.email?.trim().toLowerCase())
+        .filter((email): email is string => Boolean(email))
+    )
+  );
+  if (applicantIds.length === 0 && requestEmails.length === 0) return requests;
 
   const supabase = getSupabaseAdmin();
+  const profileIdsFromEmail = new Set<string>();
+  const emailsByProfileId = new Map<string, string>();
+  if (requestEmails.length > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id,email")
+      .in("email", requestEmails);
+    if (profilesError) throw profilesError;
+
+    (profiles ?? []).forEach((profile) => {
+      profileIdsFromEmail.add(profile.id);
+      if (profile.email) {
+        emailsByProfileId.set(profile.id, profile.email.trim().toLowerCase());
+      }
+    });
+  }
+
+  const candidateProfileIds = Array.from(
+    new Set([...applicantIds, ...profileIdsFromEmail])
+  );
+  if (candidateProfileIds.length === 0) return requests;
+
   const { data: assignedRoles, error: assignedRolesError } = await supabase
     .from("role_assignments")
     .select("profile_id,role")
-    .in("profile_id", applicantIds)
+    .in("profile_id", candidateProfileIds)
     .in("role", ["student", "branch_admin"]);
   if (assignedRolesError) throw assignedRolesError;
 
   const { data: students, error: studentsError } = await supabase
     .from("students")
     .select("profile_id")
-    .in("profile_id", applicantIds);
+    .in("profile_id", candidateProfileIds);
   if (studentsError) throw studentsError;
 
   const assignedRoleKeys = new Set(
     (assignedRoles ?? []).map((item) => `${item.profile_id}:${item.role}`)
   );
+  const assignedRoleEmailKeys = new Set(
+    (assignedRoles ?? [])
+      .map((item) => {
+        const email = emailsByProfileId.get(item.profile_id);
+        return email ? `${email}:${item.role}` : null;
+      })
+      .filter((key): key is string => Boolean(key))
+  );
   const studentProfileIds = new Set((students ?? []).map((item) => item.profile_id));
+  const studentEmails = new Set(
+    (students ?? [])
+      .map((item) => item.profile_id ? emailsByProfileId.get(item.profile_id) : null)
+      .filter((email): email is string => Boolean(email))
+  );
 
   return requests.filter((item) => {
+    const requestEmail = item.email?.trim().toLowerCase();
+    if (item.requested_role === "student" && requestEmail && studentEmails.has(requestEmail)) {
+      return false;
+    }
+    if (requestEmail && assignedRoleEmailKeys.has(`${requestEmail}:${item.requested_role}`)) {
+      return false;
+    }
     if (!item.applicant_user_id) return true;
     if (item.requested_role === "student" && studentProfileIds.has(item.applicant_user_id)) {
       return false;
@@ -61,7 +112,10 @@ export async function GET(request: NextRequest) {
   try {
     const actorProfileId = getActorProfileIdFromRequest(request);
     if (!actorProfileId) {
-      return NextResponse.json({ error: "Missing actorProfileId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing actorProfileId" },
+        withNoStoreHeaders({ status: 400 })
+      );
     }
 
     await ensureProfileExists(actorProfileId);
@@ -89,7 +143,7 @@ export async function GET(request: NextRequest) {
       query = query.eq("applicant_user_id", actor.profileId);
     } else if (role === "branch_admin") {
       if (!actor.branchAdminBranchId) {
-        return NextResponse.json({ requests: [] });
+        return NextResponse.json({ requests: [] }, withNoStoreHeaders());
       }
       query = query.eq("requested_role", "student").eq("party_branch_id", actor.branchAdminBranchId);
     }
@@ -102,10 +156,10 @@ export async function GET(request: NextRequest) {
       status
     );
 
-    return NextResponse.json({ requests });
+    return NextResponse.json({ requests }, withNoStoreHeaders());
   } catch (error) {
     const message = messageFromUnknown(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, withNoStoreHeaders({ status: 500 }));
   }
 }
 
@@ -128,29 +182,29 @@ export async function POST(request: NextRequest) {
       if (body.requestedRole === "branch_admin") {
         return NextResponse.json(
           { error: "普通管理员账号仅可由系统管理员创建，不支持自助申请" },
-          { status: 403 }
+          withNoStoreHeaders({ status: 403 })
         );
       }
-      return NextResponse.json({ error: "Invalid requestedRole" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid requestedRole" }, withNoStoreHeaders({ status: 400 }));
     }
 
     if (!body.displayName?.trim()) {
-      return NextResponse.json({ error: "displayName is required" }, { status: 400 });
+      return NextResponse.json({ error: "displayName is required" }, withNoStoreHeaders({ status: 400 }));
     }
     if (!body.phone?.trim()) {
-      return NextResponse.json({ error: "phone is required" }, { status: 400 });
+      return NextResponse.json({ error: "phone is required" }, withNoStoreHeaders({ status: 400 }));
     }
     if (!body.email?.trim() || !body.email.includes("@")) {
-      return NextResponse.json({ error: "email is required" }, { status: 400 });
+      return NextResponse.json({ error: "email is required" }, withNoStoreHeaders({ status: 400 }));
     }
     if (!body.password || body.password.length < 6) {
-      return NextResponse.json({ error: "password is required and must be at least 6 chars" }, { status: 400 });
+      return NextResponse.json({ error: "password is required and must be at least 6 chars" }, withNoStoreHeaders({ status: 400 }));
     }
     if (body.requestedRole === "student" && (!body.className?.trim() || !body.cohortYear?.trim())) {
-      return NextResponse.json({ error: "className and cohortYear are required for student" }, { status: 400 });
+      return NextResponse.json({ error: "className and cohortYear are required for student" }, withNoStoreHeaders({ status: 400 }));
     }
     if (body.requestedRole === "student" && !body.partyBranchId) {
-      return NextResponse.json({ error: "partyBranchId is required for student" }, { status: 400 });
+      return NextResponse.json({ error: "partyBranchId is required for student" }, withNoStoreHeaders({ status: 400 }));
     }
 
     const supabase = getSupabaseAdmin();
@@ -164,7 +218,7 @@ export async function POST(request: NextRequest) {
       if (role) {
         return NextResponse.json(
           { error: "Role already assigned, no need to register again" },
-          { status: 400 }
+          withNoStoreHeaders({ status: 400 })
         );
       }
       applicantProfileId = actor.profileId;
@@ -187,13 +241,13 @@ export async function POST(request: NextRequest) {
       if (createUserError) {
         return NextResponse.json(
           { error: `创建账号失败：${createUserError.message}` },
-          { status: 400 }
+          withNoStoreHeaders({ status: 400 })
         );
       }
 
       applicantProfileId = createdUser.user?.id as string;
       if (!applicantProfileId) {
-        return NextResponse.json({ error: "账号创建失败" }, { status: 500 });
+        return NextResponse.json({ error: "账号创建失败" }, withNoStoreHeaders({ status: 500 }));
       }
 
       const { error: profileInsertError } = await supabase.from("profiles").insert({
@@ -213,7 +267,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (existingPending?.id) {
-      return NextResponse.json({ error: "You already have a pending request" }, { status: 409 });
+      return NextResponse.json({ error: "You already have a pending request" }, withNoStoreHeaders({ status: 409 }));
     }
 
     const { data: differentRoleRequest } = await supabase
@@ -226,7 +280,7 @@ export async function POST(request: NextRequest) {
     if (differentRoleRequest?.id) {
       return NextResponse.json(
         { error: "一个账号只能申请一个角色，请保持与历史申请角色一致" },
-        { status: 409 }
+        withNoStoreHeaders({ status: 409 })
       );
     }
 
@@ -269,9 +323,9 @@ export async function POST(request: NextRequest) {
 
     if (createError) throw createError;
 
-    return NextResponse.json({ request: created }, { status: 201 });
+    return NextResponse.json({ request: created }, withNoStoreHeaders({ status: 201 }));
   } catch (error) {
     const message = messageFromUnknown(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, withNoStoreHeaders({ status: 500 }));
   }
 }

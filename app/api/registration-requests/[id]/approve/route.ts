@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getActorContext, getPrimaryRole } from "@/lib/server/actor-auth";
 import { messageFromUnknown } from "@/lib/server/error-message";
 import { ensureProfileExists } from "@/lib/server/profile-bootstrap";
+import { withNoStoreHeaders } from "@/lib/server/no-store-response";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -13,17 +14,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const actorProfileId = getActorProfileIdFromRequest(request);
     if (!actorProfileId) {
-      return NextResponse.json({ error: "Missing actorProfileId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing actorProfileId" },
+        withNoStoreHeaders({ status: 400 })
+      );
     }
 
     await ensureProfileExists(actorProfileId);
     const actor = await getActorContext(actorProfileId);
     const role = getPrimaryRole(actor.roles);
     if (!role || role === "student") {
-      return NextResponse.json({ error: "No permission to approve requests" }, { status: 403 });
+      return NextResponse.json(
+        { error: "No permission to approve requests" },
+        withNoStoreHeaders({ status: 403 })
+      );
     }
     if (role === "branch_admin" && !actor.branchAdminBranchId) {
-      return NextResponse.json({ error: "当前普通管理员未绑定支部，无法审批" }, { status: 403 });
+      return NextResponse.json(
+        { error: "当前普通管理员未绑定支部，无法审批" },
+        withNoStoreHeaders({ status: 403 })
+      );
     }
 
     const { id } = await context.params;
@@ -36,11 +46,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (requestError) throw requestError;
 
     if (requestRow.status !== "pending") {
-      return NextResponse.json({ error: "该申请已处理，无需重复操作" }, { status: 409 });
+      return NextResponse.json(
+        { error: "该申请已处理，无需重复操作" },
+        withNoStoreHeaders({ status: 409 })
+      );
     }
 
     if (requestRow.requested_role === "branch_admin" && role !== "system_admin") {
-      return NextResponse.json({ error: "Only system admin can approve branch admin requests" }, { status: 403 });
+      return NextResponse.json(
+        { error: "Only system admin can approve branch admin requests" },
+        withNoStoreHeaders({ status: 403 })
+      );
     }
 
     if (
@@ -48,12 +64,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
       role === "branch_admin" &&
       requestRow.party_branch_id !== actor.branchAdminBranchId
     ) {
-      return NextResponse.json({ error: "No permission for this branch request" }, { status: 403 });
+      return NextResponse.json(
+        { error: "No permission for this branch request" },
+        withNoStoreHeaders({ status: 403 })
+      );
     }
 
     const applicantProfileId = requestRow.applicant_user_id as string | null;
     if (!applicantProfileId) {
-      return NextResponse.json({ error: "Request missing applicant profile id" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Request missing applicant profile id" },
+        withNoStoreHeaders({ status: 400 })
+      );
     }
 
     const body = (await request.json().catch(() => ({}))) as { partyBranchId?: string };
@@ -70,7 +92,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (requestRow.requested_role === "branch_admin") {
       const partyBranchId = body.partyBranchId?.trim();
       if (!partyBranchId) {
-        return NextResponse.json({ error: "审批普通管理员申请时必须选择党支部" }, { status: 400 });
+        return NextResponse.json(
+          { error: "审批普通管理员申请时必须选择党支部" },
+          withNoStoreHeaders({ status: 400 })
+        );
       }
 
       const { data: branch, error: branchError } = await supabase
@@ -80,10 +105,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         .maybeSingle();
       if (branchError) throw branchError;
       if (!branch?.id) {
-        return NextResponse.json({ error: "所选党支部不存在" }, { status: 400 });
+        return NextResponse.json({ error: "所选党支部不存在" }, withNoStoreHeaders({ status: 400 }));
       }
       if (branch.college_id !== actor.systemAdminCollegeId) {
-        return NextResponse.json({ error: "无权分配其他学院的党支部" }, { status: 403 });
+        return NextResponse.json({ error: "无权分配其他学院的党支部" }, withNoStoreHeaders({ status: 403 }));
       }
 
       const { data: existingBranchAdmin, error: existingAdminError } = await supabase
@@ -95,7 +120,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         .maybeSingle();
       if (existingAdminError) throw existingAdminError;
       if (existingBranchAdmin?.profile_id) {
-        return NextResponse.json({ error: "该党支部已有普通管理员，请选择其他支部" }, { status: 409 });
+        return NextResponse.json(
+          { error: "该党支部已有普通管理员，请选择其他支部" },
+          withNoStoreHeaders({ status: 409 })
+        );
       }
 
       assignedPartyBranchId = branch.id;
@@ -182,34 +210,61 @@ export async function POST(request: NextRequest, context: RouteContext) {
       if (profileUpdateError) throw profileUpdateError;
     }
 
+    const decisionPayload = {
+      status: "approved",
+      party_branch_id: assignedPartyBranchId,
+      party_branch_name: assignedPartyBranchName,
+      reviewed_at: new Date().toISOString(),
+      reviewer_profile_id: actor.profileId,
+      decision_source_profile_id: actor.profileId,
+      decision_source_role: role,
+    };
+
     const { data: updatedRequest, error: updateError } = await supabase
       .from("registration_requests")
-      .update({
-        status: "approved",
-        party_branch_id: assignedPartyBranchId,
-        party_branch_name: assignedPartyBranchName,
-        reviewed_at: new Date().toISOString(),
-        reviewer_profile_id: actor.profileId,
-        decision_source_profile_id: actor.profileId,
-        decision_source_role: role,
-      })
-      .eq("applicant_user_id", applicantProfileId)
-      .eq("requested_role", requestRow.requested_role)
+      .update(decisionPayload)
+      .eq("id", id)
       .eq("status", "pending")
       .select("id")
       .returns<Array<{ id: string }>>();
     if (updateError) throw updateError;
+
+    const { data: duplicateRequests, error: duplicateUpdateError } = await supabase
+      .from("registration_requests")
+      .update(decisionPayload)
+      .eq("requested_role", requestRow.requested_role)
+      .eq("status", "pending")
+      .or(
+        `applicant_user_id.eq.${applicantProfileId},email.eq.${String(requestRow.email).toLowerCase()}`
+      )
+      .select("id")
+      .returns<Array<{ id: string }>>();
+    if (duplicateUpdateError) throw duplicateUpdateError;
+
+    const affectedRequestIds = Array.from(
+      new Set([
+        ...(updatedRequest ?? []).map((item) => item.id),
+        ...(duplicateRequests ?? []).map((item) => item.id),
+      ])
+    );
+
     if (!updatedRequest?.length) {
-      return NextResponse.json({ error: "Failed to update request status" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to update request status" },
+        withNoStoreHeaders({ status: 500 })
+      );
     }
 
-    return NextResponse.json({
-      ok: true,
-      affectedRequestIds: updatedRequest.map((item) => item.id),
-      student: approvedStudent,
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        affectedRequestIds,
+        student: approvedStudent,
+      },
+      withNoStoreHeaders()
+    );
   } catch (error) {
     const message = messageFromUnknown(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, withNoStoreHeaders({ status: 500 }));
   }
 }

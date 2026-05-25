@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorContext, getPrimaryRole } from "@/lib/server/actor-auth";
 import { messageFromUnknown } from "@/lib/server/error-message";
+import { withNoStoreHeaders } from "@/lib/server/no-store-response";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -32,13 +33,16 @@ export async function GET(request: NextRequest) {
   try {
     const actorProfileId = getActorProfileIdFromRequest(request);
     if (!actorProfileId) {
-      return NextResponse.json({ error: "Missing actorProfileId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing actorProfileId" },
+        withNoStoreHeaders({ status: 400 })
+      );
     }
 
     const actor = await getActorContext(actorProfileId);
     const role = getPrimaryRole(actor.roles);
     if (!role) {
-      return NextResponse.json({ error: "Actor has no role" }, { status: 403 });
+      return NextResponse.json({ error: "Actor has no role" }, withNoStoreHeaders({ status: 403 }));
     }
 
     const supabase = getSupabaseAdmin();
@@ -47,7 +51,7 @@ export async function GET(request: NextRequest) {
       if (!actor.studentId) {
         return NextResponse.json(
           { error: "Student role is not bound to any student profile" },
-          { status: 409 }
+          withNoStoreHeaders({ status: 409 })
         );
       }
 
@@ -75,34 +79,40 @@ export async function GET(request: NextRequest) {
         .eq("field_key", "__conflict__");
       if (conflictError) throw conflictError;
 
-      return NextResponse.json({
-        role,
-        summary: {
-          studentId: student.id,
-          studentName: student.full_name,
-          status: student.status,
-          filledFields,
-          conflictCount: conflictCount ?? 0,
-          updatedAt: snapshotRow?.updated_at ?? student.updated_at,
+      return NextResponse.json(
+        {
+          role,
+          summary: {
+            studentId: student.id,
+            studentName: student.full_name,
+            status: student.status,
+            filledFields,
+            conflictCount: conflictCount ?? 0,
+            updatedAt: snapshotRow?.updated_at ?? student.updated_at,
+          },
         },
-      });
+        withNoStoreHeaders()
+      );
     }
 
     if (role === "branch_admin") {
       if (!actor.branchAdminBranchId) {
-        return NextResponse.json({
-          role,
-          summary: {
-            branchId: null,
-            branchName: null,
-            totalStudents: 0,
-            progress: 0,
-            completed: 0,
-            "needs-fix": 0,
-            recentStudents: [],
-            assignmentPending: true,
+        return NextResponse.json(
+          {
+            role,
+            summary: {
+              branchId: null,
+              branchName: null,
+              totalStudents: 0,
+              progress: 0,
+              completed: 0,
+              "needs-fix": 0,
+              recentStudents: [],
+              assignmentPending: true,
+            },
           },
-        });
+          withNoStoreHeaders()
+        );
       }
 
       const { data: branchInfo, error: branchError } = await supabase
@@ -122,21 +132,24 @@ export async function GET(request: NextRequest) {
       const students = (branchStudents ?? []) as StudentRow[];
       const statusCounts = countStatuses(students);
 
-      return NextResponse.json({
-        role,
-        summary: {
-          branchId: branchInfo.id,
-          branchName: branchInfo.name,
-          totalStudents: students.length,
-          ...statusCounts,
-          recentStudents: students.slice(0, 8).map((student) => ({
-            id: student.id,
-            name: student.full_name,
-            status: student.status,
-            updatedAt: student.updated_at,
-          })),
+      return NextResponse.json(
+        {
+          role,
+          summary: {
+            branchId: branchInfo.id,
+            branchName: branchInfo.name,
+            totalStudents: students.length,
+            ...statusCounts,
+            recentStudents: students.slice(0, 8).map((student) => ({
+              id: student.id,
+              name: student.full_name,
+              status: student.status,
+              updatedAt: student.updated_at,
+            })),
+          },
         },
-      });
+        withNoStoreHeaders()
+      );
     }
 
     const { data: college, error: collegeError } = await supabase
@@ -155,18 +168,21 @@ export async function GET(request: NextRequest) {
     const branches = (branchesData ?? []) as BranchRow[];
     const branchIds = (branches ?? []).map((branch) => branch.id);
     if (branchIds.length === 0) {
-      return NextResponse.json({
-        role,
-        summary: {
-          collegeName: college?.name ?? null,
-          totalBranches: 0,
-          totalStudents: 0,
-          progress: 0,
-          completed: 0,
-          "needs-fix": 0,
-          branches: [],
+      return NextResponse.json(
+        {
+          role,
+          summary: {
+            collegeName: college?.name ?? null,
+            totalBranches: 0,
+            totalStudents: 0,
+            progress: 0,
+            completed: 0,
+            "needs-fix": 0,
+            branches: [],
+          },
         },
-      });
+        withNoStoreHeaders()
+      );
     }
 
     const { data: studentsData, error: studentsError } = await supabase
@@ -201,18 +217,21 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({
-      role,
-      summary: {
-        collegeName: college?.name ?? null,
-        totalBranches: branches?.length ?? 0,
-        totalStudents: students.length,
-        ...statusCounts,
-        branches: branchesWithStudents,
+    return NextResponse.json(
+      {
+        role,
+        summary: {
+          collegeName: college?.name ?? null,
+          totalBranches: branches?.length ?? 0,
+          totalStudents: students.length,
+          ...statusCounts,
+          branches: branchesWithStudents,
+        },
       },
-    });
+      withNoStoreHeaders()
+    );
   } catch (error) {
     const message = messageFromUnknown(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, withNoStoreHeaders({ status: 500 }));
   }
 }
