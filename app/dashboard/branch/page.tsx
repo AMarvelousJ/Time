@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BranchSummary, getDashboardSummary } from "@/lib/services/dashboard-service";
 import { getCurrentActor } from "@/lib/services/actor-service";
-import { clearActorCookie } from "@/lib/auth/session";
+import { clearActorCookie, clearSupabaseBrowserSession } from "@/lib/auth/session";
 import {
   RegistrationRequest,
   approveRegistrationRequest,
@@ -21,16 +21,23 @@ export default function BranchDashboardPage() {
   const [pendingRequests, setPendingRequests] = useState<RegistrationRequest[]>([]);
   const [actorName, setActorName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const processedRequestIdsRef = useRef<Set<string>>(new Set());
 
-  const reloadPendingRequests = async () => {
+  const applyPendingRequests = useCallback((requests: RegistrationRequest[]) => {
+    setPendingRequests(
+      requests.filter((request) => !processedRequestIdsRef.current.has(request.id))
+    );
+  }, []);
+
+  const reloadPendingRequests = useCallback(async () => {
     const requestsPayload = await listRegistrationRequests({
       status: "pending",
       requestedRole: "student",
     });
-    setPendingRequests(requestsPayload.requests);
-  };
+    applyPendingRequests(requestsPayload.requests);
+  }, [applyPendingRequests]);
 
-  const loadPageData = async () => {
+  const loadPageData = useCallback(async () => {
     const [summaryResult, requestsResult, actorResult] = await Promise.allSettled([
       getDashboardSummary(),
       listRegistrationRequests({ status: "pending", requestedRole: "student" }),
@@ -38,7 +45,7 @@ export default function BranchDashboardPage() {
     ]);
 
     if (requestsResult.status === "fulfilled") {
-      setPendingRequests(requestsResult.value.requests);
+      applyPendingRequests(requestsResult.value.requests);
     }
 
     if (actorResult.status === "fulfilled") {
@@ -55,16 +62,16 @@ export default function BranchDashboardPage() {
       return;
     }
     setSummary(summaryPayload.summary as BranchSummary);
-  };
+  }, [applyPendingRequests, router]);
 
   const isAlreadyProcessedError = (error: unknown) =>
     error instanceof Error &&
     (error.message.includes("already processed") || error.message.includes("该申请已处理"));
 
-  const afterRegistrationDecision = async (requestId: string) => {
+  const afterRegistrationDecision = (requestId: string) => {
+    processedRequestIdsRef.current.add(requestId);
     setPendingRequests((prev) => prev.filter((item) => item.id !== requestId));
-    await reloadPendingRequests();
-    await loadPageData();
+    void Promise.allSettled([reloadPendingRequests(), loadPageData()]);
   };
 
   useEffect(() => {
@@ -78,10 +85,11 @@ export default function BranchDashboardPage() {
       }
     };
     void run();
-  }, [router]);
+  }, [loadPageData]);
 
   const handleLogout = () => {
     clearActorCookie();
+    void clearSupabaseBrowserSession();
     router.replace("/login");
   };
 
@@ -90,10 +98,10 @@ export default function BranchDashboardPage() {
     setError(null);
     try {
       await approveRegistrationRequest(requestId);
-      await afterRegistrationDecision(requestId);
+      afterRegistrationDecision(requestId);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
-        await afterRegistrationDecision(requestId);
+        afterRegistrationDecision(requestId);
         return;
       }
       setError(e instanceof Error ? e.message : "审批失败");
@@ -107,10 +115,10 @@ export default function BranchDashboardPage() {
     setError(null);
     try {
       await rejectRegistrationRequest(requestId);
-      await afterRegistrationDecision(requestId);
+      afterRegistrationDecision(requestId);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
-        await afterRegistrationDecision(requestId);
+        afterRegistrationDecision(requestId);
         return;
       }
       setError(e instanceof Error ? e.message : "驳回失败");

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canAccessStudent, getActorContext } from "@/lib/server/actor-auth";
 import { messageFromUnknown } from "@/lib/server/error-message";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { deleteStudent, updateStudent } from "@/lib/server/student-repository";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -34,24 +34,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from("students")
-      .update(updatePayload)
-      .eq("id", id)
-      .select("id,full_name,created_at,status")
-      .single();
-
-    if (error) throw error;
-    return NextResponse.json({
-      person: {
-        id: data.id,
-        name: data.full_name,
-        createdAt: data.created_at.slice(0, 10),
-        status: data.status,
-        materials: [],
-      },
-    });
+    const person = await updateStudent(id, updatePayload);
+    return NextResponse.json({ person });
   } catch (error) {
     const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
@@ -74,9 +58,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "No permission" }, { status: 403 });
     }
 
-    const supabase = getSupabaseAdmin();
-    const { error } = await supabase.from("students").delete().eq("id", id);
-    if (error) throw error;
+    await deleteStudent(id);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -5,7 +5,11 @@ export const getSystemAdminStatus = async () => {
 };
 
 export const loginUser = async (email: string, password: string) => {
-  return apiFetch<{ userId: string }>("/api/auth/login", {
+  return apiFetch<{
+    userId: string;
+    accessToken: string | null;
+    refreshToken: string | null;
+  }>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });

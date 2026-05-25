@@ -2,20 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { canCreateInBranch, getActorContext, getPrimaryRole } from "@/lib/server/actor-auth";
 import { messageFromUnknown } from "@/lib/server/error-message";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
-
-const toPersonResponse = (row: {
-  id: string;
-  full_name: string;
-  created_at: string;
-  status: string;
-}) => ({
-  id: row.id,
-  name: row.full_name,
-  createdAt: row.created_at.slice(0, 10),
-  status: row.status,
-  materials: [],
-});
+import {
+  createStudent,
+  getActorStudentBranchId,
+  listStudentsForActor,
+} from "@/lib/server/student-repository";
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,49 +24,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Actor has no role" }, { status: 403 });
     }
 
-    const supabase = getSupabaseAdmin();
-
-    if (role === "student") {
-      if (!actor.studentId) return NextResponse.json({ persons: [] });
-      const { data, error } = await supabase
-        .from("students")
-        .select("id,full_name,created_at,status")
-        .eq("id", actor.studentId)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return NextResponse.json({ persons: (data ?? []).map(toPersonResponse) });
-    }
-
-    if (role === "branch_admin") {
-      const { data, error } = await supabase
-        .from("students")
-        .select("id,full_name,created_at,status")
-        .eq("party_branch_id", actor.branchAdminBranchId!)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return NextResponse.json({ persons: (data ?? []).map(toPersonResponse) });
-    }
-
-    const { data: branches, error: branchError } = await supabase
-      .from("party_branches")
-      .select("id")
-      .eq("college_id", actor.systemAdminCollegeId!);
-    if (branchError) throw branchError;
-
-    const branchIds = (branches ?? []).map((branch) => branch.id);
-    if (branchIds.length === 0) {
-      return NextResponse.json({ persons: [] });
-    }
-
-    const { data, error } = await supabase
-      .from("students")
-      .select("id,full_name,created_at,status")
-      .in("party_branch_id", branchIds)
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-
-    return NextResponse.json({ persons: (data ?? []).map(toPersonResponse) });
+    const persons = await listStudentsForActor(actor);
+    return NextResponse.json({ persons });
   } catch (error) {
     const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });
@@ -110,13 +60,7 @@ export async function POST(request: NextRequest) {
       targetPartyBranchId = actor.branchAdminBranchId;
     }
     if (!targetPartyBranchId && role === "student") {
-      const supabase = getSupabaseAdmin();
-      const { data: me } = await supabase
-        .from("students")
-        .select("party_branch_id")
-        .eq("profile_id", actor.profileId)
-        .maybeSingle();
-      targetPartyBranchId = me?.party_branch_id;
+      targetPartyBranchId = await getActorStudentBranchId(actor.profileId);
     }
 
     if (!targetPartyBranchId) {
@@ -134,29 +78,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = getSupabaseAdmin();
-    const { data: created, error: createError } = await supabase
-      .from("students")
-      .insert({
-        full_name: body.name.trim(),
-        party_branch_id: targetPartyBranchId,
-        profile_id: body.studentProfileId ?? null,
-        created_by: actor.profileId,
-        status: "progress",
-      })
-      .select("id,full_name,created_at,status")
-      .single();
-
-    if (createError) throw createError;
-
-    const { error: snapshotError } = await supabase.from("timeline_snapshots").insert({
-      student_id: created.id,
-      snapshot: {},
-      updated_by: actor.profileId,
+    const person = await createStudent({
+      name: body.name.trim(),
+      partyBranchId: targetPartyBranchId,
+      studentProfileId: body.studentProfileId ?? null,
+      createdBy: actor.profileId,
     });
-    if (snapshotError) throw snapshotError;
 
-    return NextResponse.json({ person: toPersonResponse(created) }, { status: 201 });
+    return NextResponse.json({ person }, { status: 201 });
   } catch (error) {
     const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });

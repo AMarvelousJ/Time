@@ -24,7 +24,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "登录成功但未获取到用户 ID" }, { status: 500 });
     }
 
-    return NextResponse.json({ userId }, { status: 200 });
+    return NextResponse.json(
+      {
+        userId,
+        accessToken: data.session?.access_token ?? null,
+        refreshToken: data.session?.refresh_token ?? null,
+      },
+      { status: 200 }
+    );
   } catch (error) {
     const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { setActorCookie } from "@/lib/auth/session";
+import { setActorCookie, setSupabaseBrowserSession } from "@/lib/auth/session";
 import { getSystemAdminStatus, loginUser } from "@/lib/services/auth-service";
 import { bootstrapAuthProfile } from "@/lib/services/registration-service";
 
@@ -44,8 +44,9 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const { userId } = await loginUser(email.trim(), password);
+      const { userId, accessToken, refreshToken } = await loginUser(email.trim(), password);
 
+      await setSupabaseBrowserSession(accessToken, refreshToken);
       setActorCookie(userId);
       await bootstrapAuthProfile(userId);
       router.replace("/");
@@ -121,4 +122,3 @@ export default function LoginPage() {
     </main>
   );
 }
-

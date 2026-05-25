@@ -3,7 +3,7 @@
  */
 import dayjs from 'dayjs';
 import { TimeRule, RuleConfig } from '@/types/rules';
-import { getWorkdaysBetween, calculateDateRange } from '@/utils/date-utils';
+import { getWorkdaysBetween } from '@/utils/date-utils';
 
 export interface ValidationResult {
   valid: boolean;

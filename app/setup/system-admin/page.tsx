@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { setActorCookie } from "@/lib/auth/session";
+import { setActorCookie, setSupabaseBrowserSession } from "@/lib/auth/session";
 import { getSystemAdminStatus, setupSystemAdmin } from "@/lib/services/auth-service";
+import { loginUser } from "@/lib/services/auth-service";
 
 export default function SetupSystemAdminPage() {
   const router = useRouter();
@@ -54,6 +55,8 @@ export default function SetupSystemAdminPage() {
         email: email.trim(),
         password,
       });
+      const loginPayload = await loginUser(email.trim(), password);
+      await setSupabaseBrowserSession(loginPayload.accessToken, loginPayload.refreshToken);
       setActorCookie(payload.actorProfileId);
       router.replace("/dashboard/system");
     } catch (e) {

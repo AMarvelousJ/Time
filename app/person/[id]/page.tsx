@@ -7,7 +7,7 @@ import { useTimeStore } from "@/store/time-store";
 import { STAGES, MATERIALS, TIME_RULES, FIELD_LABELS } from "@/types/materials";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress, ProgressTrack, ProgressIndicator } from "@/components/ui/progress";
+import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
   Accordion,
@@ -25,98 +25,66 @@ import { AlertCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TimelineOverview } from "@/components/ui/timeline-overview";
 import { workdayPublicityEndInclusive } from "@/utils/date-utils";
+import {
+  checkFieldDependencies as deriveFieldDependencies,
+  getDependencyHint as deriveDependencyHint,
+  getFieldStatus as deriveFieldStatus,
+  getStageProgress as deriveStageProgress,
+  getSyncSourceInfo as deriveSyncSourceInfo,
+  isMaterialComplete,
+} from "@/lib/domain/timeline-view-model";
 
 export default function PersonDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { persons, selectPerson, loadFromStorage: loadPersons } = usePersonStore();
-  const { getAllFields, setTimeField, setCurrentPersonId, loadFromStorage: loadTimeFields } = useTimeStore();
+  const {
+    getAllFields,
+    setTimeField,
+    setCurrentPersonId,
+    loadFromStorage: loadTimeFields,
+    saveError,
+  } = useTimeStore();
 
   const personId = params.id as string;
   const [activeStageId, setActiveStageId] = useState<number>(1);
-  const [personFound, setPersonFound] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const person = persons.find((p) => p.id === personId);
+  const personFound = Boolean(person);
 
   useEffect(() => {
-    void loadPersons();
+    void loadPersons().finally(() => setLoaded(true));
     void loadTimeFields();
-  }, []);
+  }, [loadPersons, loadTimeFields]);
 
   useEffect(() => {
-    const person = persons.find((p) => p.id === personId);
-    setPersonFound(!!person);
     if (person) {
       selectPerson(personId);
       void setCurrentPersonId(personId);
     }
-    setLoaded(true);
-  }, [personId, persons]);
+  }, [person, personId, selectPerson, setCurrentPersonId]);
 
-  const person = persons.find((p) => p.id === personId);
   const timeFields = getAllFields();
 
   // 检查字段的前置依赖是否已填写
   const checkDependencies = (fieldKey: string): { satisfied: boolean; missingField?: string } => {
-    const rule = TIME_RULES[fieldKey];
-    if (!rule || rule.dependencies.length === 0) {
-      return { satisfied: true };
-    }
-
-    for (const depKey of rule.dependencies) {
-      const depField = timeFields[depKey];
-      const depRule = TIME_RULES[depKey];
-      if (!depField || !depField.value) {
-        if (depRule?.config?.required === false) {
-          // 选填字段如果没填，我们递归检查它的前置依赖是否满足
-          const upstreamCheck = checkDependencies(depKey);
-          if (!upstreamCheck.satisfied) return upstreamCheck;
-        } else {
-          return {
-            satisfied: false,
-            missingField: depKey,
-          };
-        }
-      }
-    }
-    return { satisfied: true };
+    return deriveFieldDependencies(fieldKey, timeFields);
   };
 
   // 获取字段的前置依赖提示信息
   const getDependencyHint = (fieldKey: string): string | null => {
-    const { satisfied, missingField } = checkDependencies(fieldKey);
-    if (satisfied) return null;
-    if (missingField) {
-      return `请先填写：${FIELD_LABELS[missingField] || missingField}`;
-    }
-    return null;
+    return deriveDependencyHint(fieldKey, timeFields);
   };
 
   // 获取某个阶段的完成进度
   const getStageProgress = (stageId: number) => {
-    const stageMaterials = MATERIALS.filter((m) => m.stageId === stageId);
-    const validFields = stageMaterials
-      .flatMap((m) => m.fields)
-      .filter(f => {
-        const rule = TIME_RULES[f];
-        return rule?.type !== 'empty_field' && rule?.config?.required !== false;
-      });
-    if (validFields.length === 0) return 0;
-    const filledFields = validFields.filter((field) => timeFields[field]?.value).length;
-    return Math.round((filledFields / validFields.length) * 100);
+    return deriveStageProgress(stageId, timeFields);
   };
 
   // 获取字段状态
   const getFieldStatus = (fieldKey: string) => {
-    const field = timeFields[fieldKey];
-    if (!field || !field.value) {
-      if (TIME_RULES[fieldKey]?.type === 'empty_field') return 'empty_field';
-      if (TIME_RULES[fieldKey]?.config?.required === false) return 'optional';
-      return 'empty';
-    }
-    if (field.status === 'conflict') return 'conflict';
-    if (field.status === 'sync') return 'sync';
-    return 'filled';
+    return deriveFieldStatus(fieldKey, timeFields);
   };
 
   // 获取状态对应的 Badge 配置
@@ -140,38 +108,6 @@ export default function PersonDetailPage() {
   // 处理日期变更
   const handleDateChange = (fieldKey: string, date: string | null) => {
     void setTimeField(fieldKey, date);
-  };
-
-  // 获取同步来源的信息
-  const getSyncSourceInfo = (ruleConfig: {
-    type?: string;
-    config?: {
-      syncFrom?: string;
-      offsetYears?: number;
-      offsetMonths?: number;
-      offsetDays?: number;
-    };
-  }) => {
-    if (!ruleConfig || ruleConfig.type !== 'sync' || !ruleConfig.config?.syncFrom) return null;
-    const sourceKey = ruleConfig.config.syncFrom;
-    const sourceMaterial = MATERIALS.find(m => m.fields.includes(sourceKey));
-    const materialName = sourceMaterial ? sourceMaterial.name : '未知材料';
-    const fieldName = FIELD_LABELS[sourceKey] || sourceKey;
-    const y = ruleConfig.config.offsetYears;
-    const om = ruleConfig.config.offsetMonths;
-    const od = ruleConfig.config.offsetDays;
-    let offsetHint = '';
-    if (typeof y === 'number' && y !== 0) {
-      offsetHint = y === 1 ? '，加 1 年' : `，加 ${y} 年`;
-    } else if (typeof om === 'number') {
-      const q = om / 3;
-      if (typeof od === 'number') {
-        offsetHint = `，满第${q}个季度次日（+${om}月+${od}天）`;
-      } else {
-        offsetHint = `，+${om}月`;
-      }
-    }
-    return `（同步自：${materialName} - ${fieldName}${offsetHint}）`;
   };
 
   if (!loaded) {
@@ -318,6 +254,11 @@ export default function PersonDetailPage() {
             <p className="text-sm text-gray-500 mt-1">
               完成度：{getStageProgress(activeStageId)}%
             </p>
+            {saveError && (
+              <p className="mt-2 text-sm text-red-600">
+                保存失败：{saveError}
+              </p>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -333,26 +274,17 @@ export default function PersonDetailPage() {
                   {/* 材料整体状态 */}
                   <Badge
                     variant={
-                      material.fields.every((f) => {
-                        const rule = TIME_RULES[f];
-                        return timeFields[f]?.value || rule?.type === 'empty_field' || rule?.config?.required === false;
-                      })
+                      isMaterialComplete(material.fields, timeFields)
                         ? "default"
                         : "secondary"
                     }
                     className={
-                      material.fields.every((f) => {
-                        const rule = TIME_RULES[f];
-                        return timeFields[f]?.value || rule?.type === 'empty_field' || rule?.config?.required === false;
-                      })
+                      isMaterialComplete(material.fields, timeFields)
                         ? "bg-green-500"
                         : "bg-gray-300 text-gray-600"
                     }
                   >
-                    {material.fields.every((f) => {
-                        const rule = TIME_RULES[f];
-                        return timeFields[f]?.value || rule?.type === 'empty_field' || rule?.config?.required === false;
-                    })
+                    {isMaterialComplete(material.fields, timeFields)
                       ? "已完成"
                       : "未完成"}
                   </Badge>
@@ -407,7 +339,7 @@ export default function PersonDetailPage() {
                             </span>
                             {isReadOnly && (
                               <span className="text-xs text-gray-400 italic">
-                                {getSyncSourceInfo(rule) || "（从前面步骤自动同步）"}
+                                {deriveSyncSourceInfo(rule) || "（从前面步骤自动同步）"}
                               </span>
                             )}
                             {rule && !isReadOnly && !isEmptyField && (

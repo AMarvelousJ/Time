@@ -67,7 +67,7 @@ export function DatePicker({
     setViewDate(dayjs(viewDate).add(offset, 'year').toDate());
   };
 
-  const handleClear = (e: React.MouseEvent) => {
+  const handleClear = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
     onChange?.(null);
@@ -102,7 +102,7 @@ export function DatePicker({
               className="ml-2 rounded-full hover:bg-slate-100 p-1 transition-colors z-10"
               onClick={handleClear}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') handleClear(e as any);
+                if (e.key === 'Enter' || e.key === ' ') handleClear(e);
               }}
             >
               <X className="h-3 w-3 text-slate-500 hover:text-slate-900" />

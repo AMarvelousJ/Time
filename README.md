@@ -1,240 +1,291 @@
 # 发展党员时间规范管理系统
 
-基于 Next.js (App Router) + Tailwind CSS + TypeScript 的发展党员时间规范管理系统。
+基于 Next.js App Router、TypeScript、Tailwind CSS 和 Supabase 的发展党员材料时间线管理系统。
+
+系统面向学院党委/党支部发展党员流程，支持学生注册、管理员审批、支部管理、学生档案填报、材料时间规则校验、进度统计和云端持久化。
 
 ## 技术栈
 
-- **框架**: Next.js 15+ (App Router)
-- **样式**: Tailwind CSS v4
+- **框架**: Next.js 16 App Router
 - **语言**: TypeScript
-- **UI 组件**: shadcn/ui
+- **前端**: React 19、Tailwind CSS v4、shadcn/ui、lucide-react
 - **状态管理**: Zustand
-- **日期处理**: dayjs
+- **后端与数据库**: Supabase Auth、Postgres、RLS、Realtime
+- **日期处理**: dayjs、date-fns
+
+## 当前核心能力
+
+- 系统管理员初始化与登录
+- 学生账号注册与审批
+- 支部管理员账号注册与审批
+- 系统管理员创建党支部、分配支部管理员
+- 系统管理员查看学院总览、支部列表、待审批申请
+- 支部管理员查看本支部学生与待审批申请
+- 学生查看自己的发展党员档案
+- 发展党员 5 个阶段、27 类材料时间字段填报
+- 时间规则实时校验、冲突提示、依赖字段联动
+- 时间线快照持久化与修改日志记录
+- 待审批申请 Realtime 刷新
+- 审批/驳回后列表即时本地移除，并后台同步最新数据
+
+## 角色与业务流程
+
+### 系统管理员
+
+1. 首次部署后访问系统。
+2. 如果还没有系统管理员，进入 `/setup/system-admin` 完成初始化。
+3. 登录后进入 `/dashboard/system`。
+4. 可新增党支部、审批学生/支部管理员注册申请、查看支部详情和学生档案进度。
+
+### 支部管理员
+
+1. 从 `/register/branch-admin` 注册。
+2. 等待系统管理员审批。
+3. 审批通过后登录进入 `/dashboard/branch`。
+4. 可查看本支部学生，审批本支部学生注册申请，进入学生档案详情。
+
+### 学生
+
+1. 从 `/register/student` 注册。
+2. 等待系统管理员或对应支部管理员审批。
+3. 审批通过后登录进入 `/dashboard/student`。
+4. 可查看自己的发展党员档案，并进入材料时间填报页面。
 
 ## 项目结构
 
-```
+```text
 party-dev-time-system/
-├── app/                    # Next.js App Router 页面与 API
-│   ├── globals.css         # 全局样式
-│   ├── layout.tsx          # 根布局
-│   ├── page.tsx            # 首页
-│   ├── person/             # 人员详情/填报页面
-│   └── api/                # 后端接口（persons/timeline）
-├── components/             # React 组件
-│   ├── ui/                 # shadcn/ui 基础组件
-├── lib/                    # 工具库与服务层
-│   ├── utils.ts            # 通用工具函数
-│   ├── rules/              # 时间规则引擎
-│   ├── services/           # 前端 API 访问层
-│   ├── server/             # 服务端权限上下文
-│   └── supabase/           # Supabase 客户端封装
-├── store/                  # Zustand 状态管理
-│   ├── person-store.ts     # 人员状态管理
-│   └── time-store.ts       # 时间字段状态管理
-├── supabase/               # Supabase SQL 迁移
-│   └── migrations/
-├── docs/                   # 项目文档
-│   ├── architecture/       # 架构文档
-│   └── design/             # 设计流程文档
-├── scripts/                # 脚本工具
-├── types/                  # TypeScript 类型定义
-│   └── ...                 # 业务类型与规则类型
-├── utils/                  # 日期与通用业务工具
-├── public/                 # 静态资源
-└── package.json
+├── app/                         # Next.js 页面与 API Route
+│   ├── api/                     # 登录、注册、审批、仪表盘、人员、时间线接口
+│   ├── dashboard/               # system / branch / student 三类仪表盘
+│   ├── login/                   # 登录页
+│   ├── pending/                 # 待审批提示页
+│   ├── person/[id]/             # 学生档案与时间线填报页
+│   ├── register/                # 学生与支部管理员注册页
+│   └── setup/system-admin/      # 首个系统管理员初始化页
+├── components/                  # React 组件
+│   └── ui/                      # shadcn/ui 基础组件与时间线概览组件
+├── lib/
+│   ├── auth/                    # 浏览器 actor session 与 Supabase session 辅助逻辑
+│   ├── domain/                  # 时间线领域计算、视图模型、自定义校验
+│   ├── rules/                   # 通用时间规则校验器
+│   ├── server/                  # 服务端 actor 鉴权、仓储、系统初始化、进度计算
+│   ├── services/                # 前端 API 调用封装
+│   └── supabase/                # Supabase browser/server client
+├── store/                       # Zustand 本地状态
+│   ├── person-store.ts
+│   └── time-store.ts
+├── supabase/
+│   ├── migrations/              # 数据库结构、RLS、注册流程、Realtime 迁移
+│   ├── seeds/                   # 开发样例数据
+│   └── fresh_install.sql        # 全量初始化 SQL
+├── types/                       # 业务类型、材料配置、规则类型
+├── docs/
+│   ├── architecture/            # 架构说明
+│   └── testing/                 # 手工回归与规则用例
+├── scripts/                     # 数据清理、材料生成脚本
+└── utils/                       # 日期与通用工具
 ```
 
-## 目录说明
+## 本地开发
 
-### `app/`
-Next.js App Router 目录，采用文件系统路由。
-- `app/page.tsx` - 首页（人员列表）
-- `app/person/[id]/` - 人员详情/填报页面
-- `app/api/` - 人员与时间线 API
+### 1. 安装依赖
 
-### `components/`
-React 组件目录：
-- `components/ui/` - shadcn/ui 基础组件（Button, Input, Dialog, DatePicker, Calendar, Accordion 等）
-- `components/layout/` - 布局组件（Header, Sidebar 等）
-- `components/timeline/` - 时间轴概览组件
-
-### `lib/`
-核心逻辑与服务层：
-- `lib/utils.ts` - 通用工具函数（cn 类名合并等）
-- `lib/rules/validator.ts` - 时间规则验证引擎
-- `lib/services/` - 前端请求 API 的服务层
-- `lib/server/` - 服务端 actor 权限判断
-- `lib/supabase/` - Supabase server client
-
-### `store/`
-Zustand 状态管理：
-- `person-store.ts` - 管理人员列表、当前选中人员
-- `time-store.ts` - 管理时间字段、校验状态、历史记录（按人员 ID 隔离）
-
-### `types/`
-TypeScript 类型定义：
-- `person.ts` - Person, PersonStatus 等
-- `rules.ts` - RuleType, TimeRule 等
-- `materials.ts` - STAGES(5 阶段), MATERIALS(27 材料), TIME_RULES, FIELD_LABELS
-
-### `docs/`
-- `docs/architecture/project-overview.md` - 项目架构文档
-- `docs/design/supabase-backend-flow.md` - 后端接入设计流程
-
-### `scripts/`
-- `scripts/generate-materials.js` - 材料规则生成脚本
-
-## 开发指南
-
-### Supabase 环境变量
-复制 `.env.example` 到 `.env.local`，并配置：
-
-```bash
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID=...
-```
-
-说明：
-- 登录使用邮箱 + 密码（`/login` 页面）
-- `NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID` 仅用于本地临时调试兜底
-
-### 数据库初始化
-执行 `supabase/migrations/20260416_init_party_dev_schema.sql` 完成核心表与 RLS 初始化。
-
-### 示例数据初始化（可选，推荐开发联调）
-执行 `supabase/seeds/20260416_bootstrap_sample_data.sql` 快速生成三类角色与样例数据：
-- 系统管理员
-- 普通管理员（第一党支部）
-- 同学（两个支部各一个）
-
-执行后可通过修改 `NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID` 来切换当前操作角色。
-
-### 清理 mock/测试数据
-```bash
-npm run data:clear-mock
-```
-说明：会清空 `colleges/party_branches/profiles/role_assignments/students/timeline/registration_requests` 业务数据。
-
-### 安装依赖
 ```bash
 npm install
 ```
 
-### 启动开发服务器
+### 2. 配置环境变量
+
+复制 `.env.example` 为 `.env.local`，并填写 Supabase 配置：
+
+```bash
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_ANON_KEY=your-anon-key
+
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+可选本地调试变量：
+
+```bash
+NEXT_PUBLIC_BOOTSTRAP_ACTOR_ID=
+```
+
+该变量仅用于本地开发兜底，必须指向 `auth.users` / `profiles` 中已存在的用户 ID。正常登录流程不依赖它。
+
+### 3. 初始化数据库
+
+推荐在 Supabase SQL Editor 执行：
+
+```sql
+-- supabase/fresh_install.sql
+```
+
+也可以按时间顺序执行 `supabase/migrations/` 下的 SQL 文件。
+
+当前迁移包含：
+
+- 核心业务表、RLS 与角色边界
+- 注册申请与审批流程
+- 未分配支部管理员注册兼容
+- `registration_requests` 的 Supabase Realtime 发布配置
+
+### 4. 可选：导入开发样例数据
+
+```sql
+-- supabase/seeds/20260416_bootstrap_sample_data.sql
+```
+
+样例数据用于本地联调三类角色和基础业务数据。
+
+### 5. 启动开发服务
+
 ```bash
 npm run dev
 ```
 
-### 添加 shadcn/ui 组件
-```bash
-npx shadcn@latest add button
-npx shadcn@latest add dialog
-npx shadcn@latest add accordion
+默认访问：
+
+```text
+http://localhost:3000
 ```
 
-### 构建生产版本
+## Supabase Realtime 注意事项
+
+待审批申请的实时刷新依赖 Supabase Realtime。
+
+生产环境部署时必须确保已执行：
+
+```text
+supabase/migrations/20260525_enable_registration_requests_realtime.sql
+```
+
+该迁移会将 `public.registration_requests` 加入 `supabase_realtime` publication。
+
+如果线上管理员已经在旧版本中登录过，部署后建议退出并重新登录一次，让浏览器端 Supabase client 获取当前 Auth session。否则 Realtime 订阅可能无法按 RLS 正确接收变更。
+
+## 常用命令
+
 ```bash
+# 启动开发服务
+npm run dev
+
+# 代码检查
+npm run lint
+
+# TypeScript 类型检查
+npx tsc --noEmit
+
+# 生产构建
+npm run build
+
+# 启动生产服务
+npm start
+
+# 清理开发/mock 业务数据
+npm run data:clear-mock
+```
+
+`npm run data:clear-mock` 会清理 `colleges`、`party_branches`、`profiles`、`role_assignments`、`students`、`timeline`、`registration_requests` 等业务数据。使用前请确认当前连接的是开发数据库。
+
+## 时间线与规则引擎
+
+材料与字段配置集中在：
+
+```text
+types/materials.ts
+```
+
+通用规则校验位于：
+
+```text
+lib/rules/
+```
+
+领域层时间线计算位于：
+
+```text
+lib/domain/timeline-engine.ts
+lib/domain/custom-timeline-validators.ts
+lib/domain/timeline-view-model.ts
+```
+
+系统当前覆盖 5 个发展阶段：
+
+| 阶段 | 名称 | 主要内容 |
+| --- | --- | --- |
+| 1 | 入党申请阶段 | 入党申请书、谈话、公示、团推优 |
+| 2 | 积极分子阶段 | 积极分子公示、备案、党校、考察、思想汇报、群众座谈 |
+| 3 | 发展对象阶段 | 发展对象公示、备案、自传、政审、预审、预备党员公示 |
+| 4 | 预备党员阶段 | 志愿书、票决、备案、考察、思想汇报、网络培训 |
+| 5 | 转正阶段 | 转正公示、转正申请、党员基本情况登记 |
+
+支持的规则类型包括：
+
+| 类型 | 说明 |
+| --- | --- |
+| `fixed_offset` | 固定偏移规则 |
+| `range` | 时间区间规则 |
+| `after` | 不早于参考时间 |
+| `before` | 不晚于参考时间 |
+| `quarterly` | 季度性材料规则 |
+| `sequential` | 顺序递进规则 |
+
+## 服务端分层
+
+API Route 保持请求入口职责，核心数据访问已下沉到 `lib/server/`：
+
+- `actor-auth.ts`: 当前登录用户与角色权限判断
+- `request-context.ts`: 请求上下文
+- `student-repository.ts`: 学生与人员数据访问
+- `timeline-repository.ts`: 时间线快照与修改日志
+- `timeline-progress.ts`: 档案进度统计
+- `system-admin.ts`: 系统管理员初始化与判断
+
+前端页面通过 `lib/services/` 调用 API，避免在页面中散落 fetch 细节。
+
+## 验证方式
+
+重构、规则、审批或权限相关改动后，至少执行：
+
+```bash
+npm run lint
+npx tsc --noEmit
 npm run build
 ```
 
-### 启动生产服务器
-```bash
-npm start
+手工回归清单见：
+
+```text
+docs/testing/manual-regression.md
 ```
 
-## 功能模块
+规则用例说明见：
 
-### 阶段一：基础功能（P0）✅
-- [x] US-01: 新建/选择发展对象
-- [x] US-02: 查看材料时间填报页面
-- [x] US-03: 填写单个时间字段
-- [x] US-04: 实时校验时间逻辑冲突
-- [x] US-05: 智能推荐下一个时间范围
-- [x] US-06: 保存填报进度（云端持久化）
+```text
+docs/testing/rule-cases.md
+```
 
-### 阶段二：高级功能（P1）✅
-- [x] US-07: 查看已填时间概览（时间轴）
-- [ ] US-08: Excel 导入数据
+重点回归路径：
 
-## 已实现功能详情
+- 首次系统管理员初始化
+- 三类角色登录与路由跳转
+- 学生/支部管理员注册与审批
+- 待审批申请实时刷新
+- 审批/驳回后申请卡片立即消失
+- 学生档案时间字段填报、冲突提示、刷新后持久化
+- `timeline_change_logs` 修改日志写入
 
-### 1. 人员管理
-- 创建发展对象
-- 人员列表展示
-- 切换不同人员（数据隔离）
+## 部署提醒
 
-### 2. 材料填报
-- 5 个阶段 accordion 折叠展开
-- 27 个材料完整覆盖
-- 进度条显示完成度
-
-### 3. 时间规则校验
-- 依赖锁定：前置条件未满足时禁用日期选择器
-- 实时校验：填写后立即验证时间逻辑
-- 冲突显示：红色标记冲突字段并显示错误信息
-- 智能推荐：蓝色提示推荐时间范围
-
-### 4. 时间轴概览
-- 按时间顺序展示所有已填字段
-- 阶段颜色编码（5 种颜色）
-- 冲突字段标记与错误提示
-- 统计卡片（总数/正常/冲突）
-
-### 5. 数据持久化
-- 人员数据 Supabase 持久化
-- 时间字段按人员 ID 隔离存储（快照 + 日志）
-- 修改历史记录
-
-## 规则引擎
-
-系统支持以下时间规则类型：
-
-| 类型 | 说明 | 示例 | 配置参数 |
-|------|------|------|----------|
-| `fixed_offset` | 固定偏移 | 收到申请书 1 个月内 | `offset: 30, unit: 'days', direction: 'after'` |
-| `range` | 时间区间 | 谈话后，公示 5 工作日 | `minDays: 0, maxDays: 5, workdays: true` |
-| `after` | 晚于某时间 | 座谈会满一年后 | `minDays: 365` |
-| `before` | 早于某时间 | 预备期满前半个月 | `maxDays: 15` |
-| `quarterly` | 季度性 | 每季度 1 篇思想汇报 | `minDays: 0, maxDays: 90` |
-| `sequential` | 顺序递进 | 依次递进即可 | `{}` |
-
-### 错误提示示例
-
-- **fixed_offset**: 时间不得早于入党申请时间，并且在入党申请时间后一个月内
-- **range**: 时间需晚于入党申请人谈话时间
-- **after**: 时间必须晚于参考时间至少 X 天
-- **before**: 时间必须早于参考时间
-
-## 5 个发展阶段
-
-| 阶段 | 名称 | 材料数量 | 材料列表 |
-|------|------|----------|----------|
-| 1 | 入党申请阶段 | 4 | 入党申请书、入党申请人谈话表、入党申请人情况公示、团推优 |
-| 2 | 积极分子阶段 | 6 | 入党积极分子公示单、入党积极分子备案登记表、党校结业证明、入党积极分子考察登记表、思想汇报 (4 篇)、群众座谈会纪录表 |
-| 3 | 发展对象阶段 | 8 | 发展对象名单公示、发展对象确定备案表、个人自传、直系亲属政审表、综合政审表、网络党校学时证明、预审情况登记表、预备党员公示单 |
-| 4 | 预备党员阶段 | 6 | 入党志愿书、票决材料、接收预备党员备案表、预备党员考察表、预备党员思想汇报 (4 篇)、预备党员网络培训证明 |
-| 5 | 转正阶段 | 3 | 预备党员转正公示单、转正申请书、党员基本情况登记表 |
-
-## 数据存储
-
-- 使用 Supabase 进行云端持久化存储
-- 按党支部进行数据隔离，按角色控制访问范围
-- 时间线采用快照表 + 变更日志表
-- 支持修改历史记录与审计追踪
-
-## 待开发功能
-
-- **US-08**: Excel 导入数据
-- **历史记录 UI**: 查看和恢复修改历史
-- **智能推荐增强**: 更详细的时间范围推荐提示
-
-## 隐私说明
-
-- 数据存储在 Supabase 项目中
-- 通过角色与组织边界进行访问控制
-- M1 阶段通过邮箱 + 密码登录 + actor 机制访问
+- 服务端必须配置 `SUPABASE_SERVICE_ROLE_KEY`
+- 浏览器端必须配置 `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- 生产数据库必须执行最新迁移，尤其是 Realtime 相关迁移
+- RLS 依赖 Supabase Auth 用户与 `profiles` / `role_assignments` 的一致性
+- 线上排查审批列表延迟时，优先确认 Realtime publication、用户重新登录、浏览器控制台订阅状态
 
 ## License
 

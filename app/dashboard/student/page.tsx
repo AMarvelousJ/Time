@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getDashboardSummary, StudentSummary } from "@/lib/services/dashboard-service";
 import { getCurrentActor } from "@/lib/services/actor-service";
-import { clearActorCookie } from "@/lib/auth/session";
+import { clearActorCookie, clearSupabaseBrowserSession } from "@/lib/auth/session";
 
 export default function StudentDashboardPage() {
   const router = useRouter();
@@ -38,6 +38,7 @@ export default function StudentDashboardPage() {
 
   const handleLogout = () => {
     clearActorCookie();
+    void clearSupabaseBrowserSession();
     router.replace("/login");
   };
 

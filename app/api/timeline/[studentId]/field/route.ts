@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canAccessStudent, getActorContext } from "@/lib/server/actor-auth";
 import { messageFromUnknown } from "@/lib/server/error-message";
 import { getActorProfileIdFromRequest } from "@/lib/server/request-context";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { updateTimelineSnapshotField } from "@/lib/server/timeline-repository";
 
 interface RouteContext {
   params: Promise<{ studentId: string }>;
@@ -33,63 +33,13 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "No permission" }, { status: 403 });
     }
 
-    const supabase = getSupabaseAdmin();
-    const { data: existing, error: existingError } = await supabase
-      .from("timeline_snapshots")
-      .select("snapshot")
-      .eq("student_id", studentId)
-      .maybeSingle();
-    if (existingError) throw existingError;
-
-    const snapshot = ((existing?.snapshot as Record<string, string | null>) ?? {}) as Record<
-      string,
-      string | null
-    >;
-    const oldValue = Object.prototype.hasOwnProperty.call(snapshot, body.fieldKey)
-      ? snapshot[body.fieldKey]
-      : null;
-
-    const nextSnapshot = { ...snapshot };
-    if (body.value == null || body.value === "") {
-      delete nextSnapshot[body.fieldKey];
-    } else {
-      nextSnapshot[body.fieldKey] = body.value;
-    }
-
-    if (existing) {
-      const { error: updateError } = await supabase
-        .from("timeline_snapshots")
-        .update({
-          snapshot: nextSnapshot,
-          updated_by: actor.profileId,
-        })
-        .eq("student_id", studentId);
-      if (updateError) throw updateError;
-    } else {
-      const { error: insertError } = await supabase.from("timeline_snapshots").insert({
-        student_id: studentId,
-        snapshot: nextSnapshot,
-        updated_by: actor.profileId,
-      });
-      if (insertError) throw insertError;
-    }
-
-    const { error: logError } = await supabase.from("timeline_change_logs").insert({
-      student_id: studentId,
-      field_key: body.fieldKey,
-      old_value: oldValue,
-      new_value: body.value ?? null,
-      actor_profile_id: actor.profileId,
-    });
-    if (logError) throw logError;
-
-    return NextResponse.json({
-      ok: true,
+    const payload = await updateTimelineSnapshotField({
+      studentId,
       fieldKey: body.fieldKey,
-      oldValue,
-      newValue: body.value ?? null,
-      snapshot: nextSnapshot,
+      value: body.value ?? null,
+      actorProfileId: actor.profileId,
     });
+    return NextResponse.json(payload);
   } catch (error) {
     const message = messageFromUnknown(error);
     return NextResponse.json({ error: message }, { status: 500 });

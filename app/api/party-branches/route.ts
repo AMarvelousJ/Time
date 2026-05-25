@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { messageFromUnknown } from "@/lib/server/error-message";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase

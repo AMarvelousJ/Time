@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { getDashboardSummary, SystemSummary } from "@/lib/services/dashboard-service";
 import { getCurrentActor } from "@/lib/services/actor-service";
-import { clearActorCookie } from "@/lib/auth/session";
+import { clearActorCookie, clearSupabaseBrowserSession } from "@/lib/auth/session";
+import { getSupabaseClient } from "@/lib/supabase/client";
 import {
   RegistrationRequest,
   approveRegistrationRequest,
@@ -65,13 +66,20 @@ export default function SystemDashboardPage() {
   const [branchDetail, setBranchDetail] = useState<PartyBranchDetail | null>(null);
   const [branchDetailLoading, setBranchDetailLoading] = useState(false);
   const [branchDetailError, setBranchDetailError] = useState<string | null>(null);
+  const processedRequestIdsRef = useRef<Set<string>>(new Set());
 
-  const reloadPendingRequests = async () => {
+  const applyPendingRequests = useCallback((requests: RegistrationRequest[]) => {
+    setPendingRequests(
+      requests.filter((request) => !processedRequestIdsRef.current.has(request.id))
+    );
+  }, []);
+
+  const reloadPendingRequests = useCallback(async () => {
     const requestsPayload = await listRegistrationRequests({ status: "pending" });
-    setPendingRequests(requestsPayload.requests);
-  };
+    applyPendingRequests(requestsPayload.requests);
+  }, [applyPendingRequests]);
 
-  const loadPageData = async () => {
+  const loadPageData = useCallback(async () => {
     const [summaryResult, requestsResult, adminsResult, actorResult] = await Promise.allSettled([
       getDashboardSummary(),
       listRegistrationRequests({ status: "pending" }),
@@ -80,7 +88,7 @@ export default function SystemDashboardPage() {
     ]);
 
     if (requestsResult.status === "fulfilled") {
-      setPendingRequests(requestsResult.value.requests);
+      applyPendingRequests(requestsResult.value.requests);
     }
 
     if (actorResult.status === "fulfilled") {
@@ -101,16 +109,16 @@ export default function SystemDashboardPage() {
       return;
     }
     setSummary(summaryPayload.summary as SystemSummary);
-  };
+  }, [applyPendingRequests, router]);
 
   const isAlreadyProcessedError = (error: unknown) =>
     error instanceof Error &&
     (error.message.includes("already processed") || error.message.includes("该申请已处理"));
 
-  const afterRegistrationDecision = async (requestId: string) => {
+  const afterRegistrationDecision = (requestId: string) => {
+    processedRequestIdsRef.current.add(requestId);
     setPendingRequests((prev) => prev.filter((item) => item.id !== requestId));
-    await reloadPendingRequests();
-    await loadPageData();
+    void Promise.allSettled([reloadPendingRequests(), loadPageData()]);
   };
 
   useEffect(() => {
@@ -124,10 +132,35 @@ export default function SystemDashboardPage() {
       }
     };
     void run();
-  }, [router]);
+  }, [loadPageData]);
+
+  useEffect(() => {
+    if (!summary) return;
+
+    const supabase = getSupabaseClient();
+    const channel = supabase
+      .channel("system-registration-requests")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "registration_requests",
+        },
+        () => {
+          void reloadPendingRequests();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [reloadPendingRequests, summary]);
 
   const handleLogout = () => {
     clearActorCookie();
+    void clearSupabaseBrowserSession();
     router.replace("/login");
   };
 
@@ -151,10 +184,10 @@ export default function SystemDashboardPage() {
     setError(null);
     try {
       await approveRegistrationRequest(requestId);
-      await afterRegistrationDecision(requestId);
+      afterRegistrationDecision(requestId);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
-        await afterRegistrationDecision(requestId);
+        afterRegistrationDecision(requestId);
         return;
       }
       setError(e instanceof Error ? e.message : "审批失败");
@@ -179,13 +212,13 @@ export default function SystemDashboardPage() {
       setApproveDialogOpen(false);
       setApproveTarget(null);
       setApprovePartyBranchId("");
-      await afterRegistrationDecision(requestId);
+      afterRegistrationDecision(requestId);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
         setApproveDialogOpen(false);
         setApproveTarget(null);
         setApprovePartyBranchId("");
-        await afterRegistrationDecision(requestId);
+        afterRegistrationDecision(requestId);
         return;
       }
       setApproveFormError(e instanceof Error ? e.message : "审批失败");
@@ -199,10 +232,10 @@ export default function SystemDashboardPage() {
     setError(null);
     try {
       await rejectRegistrationRequest(requestId);
-      await afterRegistrationDecision(requestId);
+      afterRegistrationDecision(requestId);
     } catch (e) {
       if (isAlreadyProcessedError(e)) {
-        await afterRegistrationDecision(requestId);
+        afterRegistrationDecision(requestId);
         return;
       }
       setError(e instanceof Error ? e.message : "驳回失败");
