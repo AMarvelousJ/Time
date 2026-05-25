@@ -28,19 +28,29 @@ const filterAlreadyAssignedPendingRequests = async <T extends RegistrationReques
   if (applicantIds.length === 0) return requests;
 
   const supabase = getSupabaseAdmin();
-  const { data: assignedRoles, error } = await supabase
+  const { data: assignedRoles, error: assignedRolesError } = await supabase
     .from("role_assignments")
     .select("profile_id,role")
     .in("profile_id", applicantIds)
     .in("role", ["student", "branch_admin"]);
-  if (error) throw error;
+  if (assignedRolesError) throw assignedRolesError;
+
+  const { data: students, error: studentsError } = await supabase
+    .from("students")
+    .select("profile_id")
+    .in("profile_id", applicantIds);
+  if (studentsError) throw studentsError;
 
   const assignedRoleKeys = new Set(
     (assignedRoles ?? []).map((item) => `${item.profile_id}:${item.role}`)
   );
+  const studentProfileIds = new Set((students ?? []).map((item) => item.profile_id));
 
   return requests.filter((item) => {
     if (!item.applicant_user_id) return true;
+    if (item.requested_role === "student" && studentProfileIds.has(item.applicant_user_id)) {
+      return false;
+    }
     return !assignedRoleKeys.has(`${item.applicant_user_id}:${item.requested_role}`);
   });
 };
