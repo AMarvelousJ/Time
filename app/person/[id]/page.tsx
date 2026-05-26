@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { usePersonStore } from "@/store/person-store";
 import { useTimeStore } from "@/store/time-store";
@@ -9,6 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Accordion,
   AccordionItem,
@@ -21,10 +27,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { AlertCircle, Clock } from "lucide-react";
+import { AlertCircle, Bot, Clock, Loader2, Send, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TimelineOverview } from "@/components/ui/timeline-overview";
 import { workdayPublicityEndInclusive } from "@/utils/date-utils";
+import { apiFetch } from "@/lib/services/api-client";
 import {
   checkFieldDependencies as deriveFieldDependencies,
   getDependencyHint as deriveDependencyHint,
@@ -33,6 +40,12 @@ import {
   getSyncSourceInfo as deriveSyncSourceInfo,
   isMaterialComplete,
 } from "@/lib/domain/timeline-view-model";
+
+type AssistantMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+};
 
 export default function PersonDetailPage() {
   const params = useParams();
@@ -50,6 +63,24 @@ export default function PersonDetailPage() {
   const [activeStageId, setActiveStageId] = useState<number>(1);
   const [loaded, setLoaded] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(
+    [
+      {
+        id: "welcome",
+        role: "assistant",
+        content:
+          "你好，我是智能助手。可以帮你梳理发展党员材料时间、解释冲突原因，或给出下一步填写建议。",
+      },
+    ]
+  );
+  const [assistantInput, setAssistantInput] = useState("");
+  const [assistantConversationId, setAssistantConversationId] = useState<
+    string | null
+  >(null);
+  const [isAssistantSending, setIsAssistantSending] = useState(false);
+  const [assistantError, setAssistantError] = useState<string | null>(null);
+  const assistantEndRef = useRef<HTMLDivElement | null>(null);
   const person = persons.find((p) => p.id === personId);
   const personFound = Boolean(person);
 
@@ -64,6 +95,10 @@ export default function PersonDetailPage() {
       void setCurrentPersonId(personId);
     }
   }, [person, personId, selectPerson, setCurrentPersonId]);
+
+  useEffect(() => {
+    assistantEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [assistantMessages, isAssistantSending]);
 
   const timeFields = getAllFields();
 
@@ -108,6 +143,66 @@ export default function PersonDetailPage() {
   // 处理日期变更
   const handleDateChange = (fieldKey: string, date: string | null) => {
     void setTimeField(fieldKey, date);
+  };
+
+  const sendAssistantMessage = async () => {
+    const query = assistantInput.trim();
+    if (!query || isAssistantSending) return;
+
+    const userMessage: AssistantMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: query,
+    };
+    const assistantMessageId = `assistant-${Date.now()}`;
+
+    setAssistantInput("");
+    setAssistantError(null);
+    setIsAssistantSending(true);
+    setAssistantMessages((messages) => [
+      ...messages,
+      userMessage,
+      {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+      },
+    ]);
+
+    try {
+      const payload = await apiFetch<{
+        answer: string;
+        conversationId: string | null;
+      }>("/api/assistant/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          query,
+          conversationId: assistantConversationId,
+          studentId: personId,
+          studentName: person?.name ?? "",
+        }),
+      });
+
+      setAssistantConversationId(payload.conversationId);
+      setAssistantMessages((messages) =>
+        messages.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                content: payload.answer || "我暂时没有生成有效回复。",
+              }
+            : message
+        )
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "发送失败";
+      setAssistantError(message);
+      setAssistantMessages((messages) =>
+        messages.filter((item) => item.id !== assistantMessageId)
+      );
+    } finally {
+      setIsAssistantSending(false);
+    }
   };
 
   if (!loaded) {
@@ -430,6 +525,111 @@ export default function PersonDetailPage() {
 
       {/* 时间轴概览弹窗 */}
       <TimelineOverview open={isTimelineOpen} onOpenChange={setIsTimelineOpen} />
+
+      <Button
+        type="button"
+        size="icon-lg"
+        className="fixed bottom-6 left-6 z-40 size-12 rounded-full bg-blue-600 shadow-xl shadow-blue-900/20 hover:bg-blue-700"
+        onClick={() => setIsAssistantOpen(true)}
+        aria-label="打开智能助手"
+        title="智能助手"
+      >
+        <Bot className="h-5 w-5" />
+      </Button>
+
+      <Dialog open={isAssistantOpen} onOpenChange={setIsAssistantOpen}>
+        <DialogContent className="h-[min(720px,calc(100vh-1.5rem))] w-[min(430px,calc(100vw-1.5rem))] max-w-none grid-rows-[auto_1fr_auto] gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl shadow-slate-900/20 ring-0 sm:max-w-none">
+          <DialogHeader className="border-b border-slate-100 bg-white px-5 py-4 pr-12">
+            <DialogTitle className="flex items-center gap-3 text-base font-semibold text-slate-950">
+              <span className="flex size-9 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm shadow-blue-900/20">
+                <Bot className="h-4 w-4" />
+              </span>
+              <span className="flex flex-col gap-0.5">
+                <span>智能助手</span>
+                <span className="text-xs font-normal text-slate-500">
+                  发展党员材料时间咨询
+                </span>
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 space-y-4 overflow-y-auto bg-slate-50 px-5 py-4">
+            {assistantMessages.map((message) => (
+              <div
+                key={message.id}
+                className={cn(
+                  "flex",
+                  message.role === "user" ? "justify-end" : "justify-start"
+                )}
+              >
+                <div
+                  className={cn(
+                    "max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm",
+                    message.role === "user"
+                      ? "rounded-br-md bg-blue-600 text-white"
+                      : "rounded-bl-md border border-slate-200 bg-white text-slate-800"
+                  )}
+                >
+                  {message.content ? (
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                  ) : (
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      正在思考
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {assistantError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                {assistantError}
+              </div>
+            )}
+            <div ref={assistantEndRef} />
+          </div>
+          <div className="border-t border-slate-100 bg-white p-4">
+            <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+              <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+              可询问材料时间规则、冲突原因或下一步填写建议
+            </div>
+            <form
+              className="flex items-end gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void sendAssistantMessage();
+              }}
+            >
+              <textarea
+                value={assistantInput}
+                onChange={(event) => setAssistantInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendAssistantMessage();
+                  }
+                }}
+                rows={2}
+                placeholder="输入你的问题..."
+                className="min-h-11 flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-5 text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-3 focus:ring-blue-100"
+                disabled={isAssistantSending}
+              />
+              <Button
+                type="submit"
+                size="icon-lg"
+                className="size-11 rounded-xl"
+                disabled={!assistantInput.trim() || isAssistantSending}
+                aria-label="发送消息"
+              >
+                {isAssistantSending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </form>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
